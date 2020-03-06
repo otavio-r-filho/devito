@@ -4,7 +4,7 @@ from devito.core.operator import OperatorCore
 from devito.exceptions import InvalidOperator
 from devito.ir.clusters import Toposort
 from devito.passes.clusters import Lift, fuse, scalarize, eliminate_arrays, rewrite
-from devito.passes.iet import (DataManager, Blocker, Ompizer, avoid_denormals,
+from devito.passes.iet import (DataManager, Blocker, OpenACCizer, avoid_denormals,
                                optimize_halospots, mpiize, loop_wrapping, hoist_prodders)
 from devito.tools import as_tuple, generator, timed_pass
 
@@ -79,12 +79,14 @@ class CPU64Operator(CPU64NoopOperator):
         blocker = Blocker(options['blockinner'],
                           options['blocklevels'] or cls.BLOCK_LEVELS)
         blocker.make_blocking(graph)
-
-        # Shared-memory and SIMD-level parallelism
-        ompizer = Ompizer()
+        # Shared-memor and SIMD-level parallelism
+        ompizer = OpenACCizer()
+        #openaccizer = Openaccizer()
         ompizer.make_simd(graph, simd_reg_size=platform.simd_reg_size)
+        #openaccizer.make_simd(graph, simd_reg_size=platform.simd_reg_size)
         if options['openmp']:
             ompizer.make_parallel(graph)
+            #openaccizer.make_parallel(graph)
 
         # Misc optimizations
         hoist_prodders(graph)
@@ -112,7 +114,8 @@ class CustomOperator(CPU64Operator):
         blocker = Blocker(options['blockinner'],
                           options['blocklevels'] or cls.BLOCK_LEVELS)
 
-        ompizer = Ompizer()
+        ompizer = OpenACCizer()
+        #openaccizer = OpenACCizer()
 
         return {
             'denormals': partial(avoid_denormals),
@@ -120,6 +123,7 @@ class CustomOperator(CPU64Operator):
             'wrapping': partial(loop_wrapping),
             'blocking': partial(blocker.make_blocking),
             'openmp': partial(ompizer.make_parallel),
+            #'openacc': partial(openaccizer.make_parallel),
             'mpi': partial(mpiize, mode=options['mpi']),
             'simd': partial(ompizer.make_simd, simd_reg_size=platform.simd_reg_size),
             'prodders': partial(hoist_prodders)

@@ -15,7 +15,7 @@ from devito.passes.iet.engine import iet_pass
 from devito.tools import as_tuple, is_integer, prod
 from devito.types import Constant, Symbol
 
-__all__ = ['NThreads', 'NThreadsNested', 'NThreadsNonaffine', 'Ompizer', 
+__all__ = ['NThreads', 'NThreadsNested', 'NThreadsNonaffine', 'OpenACCizer',
            'ParallelIteration', 'ParallelTree']
 
 
@@ -82,8 +82,8 @@ class ParallelRegion(Block):
 
     @classmethod
     def _make_header(cls, nthreads, private):
-        private = ('private(%s)' % ','.join(private)) if private else ''
-        return c.Pragma('omp parallel num_threads(%s) %s' % (nthreads.name, private))
+        #private = ('private(%s)' % ','.join(private)) if private else ''
+        return c.Pragma('')
 
 
 class ParallelIteration(Iteration):
@@ -116,9 +116,9 @@ class ParallelIteration(Iteration):
     @classmethod
     def _make_construct(cls, parallel=False, **kwargs):
         if parallel:
-            return 'omp parallel for'
+            return 'acc parallel loop'
         else:
-            return 'omp for'
+            return 'acc parallel loop'
 
     @classmethod
     def _make_clauses(cls, ncollapse=None, chunk_size=None, nthreads=None,
@@ -127,15 +127,15 @@ class ParallelIteration(Iteration):
 
         clauses.append('collapse(%d)' % (ncollapse or 1))
 
-        if chunk_size is not False:
-            clauses.append('schedule(dynamic,%s)' % (chunk_size or 1))
+        #if chunk_size is not False:
+        #    clauses.append('schedule(dynamic,%s)' % (chunk_size or 1))
 
-        if nthreads:
-            clauses.append('num_threads(%s)' % nthreads)
+        #if nthreads:
+        #    clauses.append('num_threads(%s)' % nthreads)
 
-        if reduction:
-            args = ','.join(str(i) for i in reduction)
-            clauses.append('reduction(+:%s)' % args)
+        #if reduction:
+        #    args = ','.join(str(i) for i in reduction)
+        #    clauses.append('reduction(+:%s)' % args)
 
         return clauses
 
@@ -143,6 +143,7 @@ class ParallelIteration(Iteration):
 class ParallelTree(List):
 
     """
+    TOFIX: docstring
     This class is to group together a parallel for-loop with some setup
     statements, for example:
 
@@ -204,7 +205,7 @@ class ThreadedProdder(Conditional, Prodder):
         Prodder.__init__(self, prodder.name, prodder.arguments, periodic=prodder.periodic)
 
 
-class Ompizer(object):
+class OpenACCizer(object):
 
     NESTED = 2
     """
@@ -231,12 +232,12 @@ class Ompizer(object):
     """
 
     lang = {
-        'simd-for': c.Pragma('omp simd'),
-        'simd-for-aligned': lambda i, j: c.Pragma('omp simd aligned(%s:%d)' % (i, j)),
-        'atomic': c.Pragma('omp atomic update')
+        'simd-for': c.Pragma('acc loop vector'),
+        'simd-for-aligned': lambda i, j: c.Pragma('acc loop vector'),
+        'atomic': c.Pragma('acc atomic update')
     }
     """
-    Shortcuts for the OpenMP language.
+    Shortcuts for the OpenACC language.
     """
 
     def __init__(self, key=None):
@@ -251,7 +252,7 @@ class Ompizer(object):
         else:
             def key(i):
                 if i.uindices:
-                    # Iteration must be in OpenMP canonical form
+                    # Iteration must be in OpenACC canonical form
                     return False
                 return i.is_ParallelRelaxed and not i.is_Vectorized
             self.key = key
@@ -267,6 +268,7 @@ class Ompizer(object):
                 if not IsPerfectIteration(depth=i).visit(root):
                     break
 
+                # TOFIX: OpenACC
                 # The OpenMP specification forbids collapsed loops to use iteration
                 # variables in initializer expressions. E.g., the following is forbidden:
                 #
@@ -320,7 +322,7 @@ class Ompizer(object):
         return partree
 
     def _make_partree(self, candidates, nthreads=None):
-        """Parallelize the `candidates` Iterations attaching suitable OpenMP pragmas."""
+        """Parallelize the `candidates` Iterations attaching suitable OpenACC pragmas."""
         assert candidates
         root = candidates[0]
 
@@ -377,7 +379,7 @@ class Ompizer(object):
 
     def _make_nested_partree(self, partree):
         # Apply heuristic
-        if nhyperthreads() <= Ompizer.NESTED:
+        if nhyperthreads() <= OpenACCizer.NESTED:
             return partree
 
         # Note: there might be multiple sub-trees amenable to nested parallelism,
@@ -393,7 +395,7 @@ class Ompizer(object):
             outer = tree[:partree.ncollapsed]
             inner = tree[partree.ncollapsed:]
 
-            # Heuristic: nested parallelism is applied only if the top nested
+            # Heuristic: nested parallelism is applied only if the top 
             # parallel Iteration iterates *within* the top outer parallel Iteration
             # (i.e., the outer is a loop over blocks, while the nested is a loop
             # within a block)
@@ -421,7 +423,7 @@ class Ompizer(object):
     @iet_pass
     def make_parallel(self, iet):
         """
-        Create a new IET with shared-memory parallelism via OpenMP pragmas.
+        Create a new IET with shared-memory parallelism via OpenACC pragmas.
         """
         mapper = OrderedDict()
         for tree in retrieve_iteration_tree(iet):
@@ -455,12 +457,12 @@ class Ompizer(object):
         # The used `nthreads` arguments
         args = [i for i in FindSymbols().visit(iet) if isinstance(i, (NThreadsMixin))]
 
-        return iet, {'args': args, 'includes': ['omp.h']}
+        return iet, {'args': args, 'includes': ['openacc.h']}
 
     @iet_pass
     def make_simd(self, iet, **kwargs):
         """
-        Create a new IET with SIMD parallelism via OpenMP pragmas.
+        Create a new IET with SIMD parallelism via OpenACC pragmas.
         """
         simd_reg_size = kwargs.pop('simd_reg_size')
 
@@ -474,7 +476,7 @@ class Ompizer(object):
                 return iet, {}
             candidate = candidates[-1]
 
-            # Construct OpenMP SIMD pragma
+            # Construct OpenACC SIMD pragma
             aligned = [j for j in FindSymbols('symbolics').visit(candidate)
                        if j.is_DiscreteFunction]
             if aligned:
