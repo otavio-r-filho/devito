@@ -123,7 +123,7 @@ def extract(cluster, template, mode):
 
 def collect(exprs):
     """
-    Determine groups of aliasing expressions.
+    Find groups of aliasing expressions.
 
     An expression A aliases an expression B if both A and B perform the same
     arithmetic operations over the same input operands, with the possibility for
@@ -152,7 +152,7 @@ def collect(exprs):
     """
     aliases = Aliases()
 
-    # Determine the potential aliases
+    # Find the potential aliases
     candidates = []
     for expr in exprs:
         candidate = analyze(expr)
@@ -170,59 +170,75 @@ def collect(exprs):
                 group.append(i)
                 unseen.remove(i)
         assert all(c.dimensions == i.dimensions for i in group)
-        mapper.setdefault(c.dimensions, []).append(group)
+        mapper.setdefault(c.dimensions, []).append(tuple(group))
     if not mapper:
         return aliases
 
-    for k, v in mapper.items():
-        for group in v:
-            # Determine the minimum offsets along each Dimension
+    for k, groups in mapper.items():
+        # MLP - Maximum definitely-Legal Point (along each Dimension)
+        mlps = {}
+        for group in groups:
+            offsets = set().union(*[c.offsets for c in group])
+            Toffsets = LabeledVector.transpose(*offsets)
+            mlps.update({d: max(mlps.get(d, 0), *v) for d, v in Toffsets})
+
+        # MD - Maximum distance between two points across two any aliasing expressions
+        mds = {}
+        for group in groups:
+            for i in zip(*[c.offsets for c in group]):
+                Toffsets = LabeledVector.transpose(*i)
+                mds.update({d: max(mds.get(d, 0), max(v) - min(v)) for d, v in Toffsets})
+
+        for group in groups:
+            # Construct a Basis Alias
             offsets = []
-            for ofs in zip(*[c.offsets for c in group]):
-                Tofs = LabeledVector.transpose(*ofs)
-                offsets.append(LabeledVector([(d, min(v)) for d, v in Tofs]))
+            for i in zip(*[c.offsets for c in group]):
+                Toffsets = LabeledVector.transpose(*i)
+                items = []
+                for d, v in Toffsets:
+                    if min(v) + mds[d] > mlps[d]:
+                        m = max(0, mlps[d] - mds[d])
+                    else:
+                        m = min(v)
+                    items.append((d, m))
+                offsets.append(LabeledVector(items))
 
-            #TODO: SOMETHING MUST CHANGE HERE
-
-            # Construct the Basis Alias -- an alias to span all aliasing expressions
             c = group[0]
             subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
                     for i, b, v in zip(c.indexeds, c.bases, offsets)}
             alias = c.expr.xreplace(subs)
+            aliased = [i.expr for i in group]
 
             # Determine the distance of each aliasing expression from the Basis Alias
+            distances = []
             for i in group:
                 assert len(offsets) == len(i.offsets)
-                distance = [o.distance(c) for o, c in zip(i.offsets, offsets)]
-                distance = [(l, set(i)) for l, i in LabeledVector.transpose(*distance)]
-                from IPython import embed; embed()
+                distance = [o.distance(v) for o, v in zip(i.offsets, offsets)]
+                distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
 
-    for k, v in mapper.items():
-        # Try creating a basis spanning the aliasing expressions' iteration vectors
-        try:
-            COM, distances = calculate_COM(group)
-        except ValueError:
-            # Ignore these aliasing expressions and move on
-            continue
+                distance_mapper = OrderedDict(distance)
+                distance = []
+                for d, v in distance_mapper.items():
+                    # The distance of each Indexed from the Basis Alias must be
+                    # uniform across all Indexeds
+                    if len(v) != 1:
+                        raise ValueError
 
-        # Create an alias expression centering `c`'s Indexeds at the COM
-        subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
-                for i, b, v in zip(c.indexeds, c.bases, COM)}
-        alias = c.expr.xreplace(subs)
-        aliased = [i.expr for i in group]
+                    # The distance along the ShiftedDimensions must be identical
+                    # to that of their parent
+                    if isinstance(d, ShiftedDimension):
+                        if v != distance_mapper.get(d.parent, v):
+                            raise ValueError
+                        continue
 
-        aliases.add(alias, aliased, distances)
+                    distance.append((d, v))
 
-    # Heuristically attempt to relax the Aliases offsets to maximize the
-    # likelyhood of loop fusion
-    groups = OrderedDict()
-    for i in aliases.values():
-        groups.setdefault(i.dimensions, []).append(i)
-    for group in groups.values():
-        ideal_anti_stencil = Stencil.union(*[i.anti_stencil for i in group])
-        for i in group:
-            if i.anti_stencil.subtract(ideal_anti_stencil).empty:
-                aliases[i.alias] = i.relax(ideal_anti_stencil)
+                distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
+
+            aliases.add(alias, aliased, distances)
+
+    if aliases:
+        from IPython import embed; embed()
 
     return aliases
 
