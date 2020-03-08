@@ -10,6 +10,7 @@ from devito.ir import (ROUNDABLE, DataSpace, IterationInstance, Interval,
 from devito.passes.clusters.utils import cluster_pass, make_is_time_invariant
 from devito.symbolics import (estimate_cost, q_leaf, q_sum_of_product, q_terminalop,
                               retrieve_indexed, yreplace)
+from devito.tools import MinMax
 from devito.types import Array, Eq, IncrDimension, Scalar
 
 __all__ = ['cire']
@@ -149,6 +150,8 @@ def collect(exprs):
         * a[i+2] - b[i+2] : because at least one operation differs
         * a[i+2] + b[i] : because the distances along ``i`` differ (+2 and +0)
     """
+    aliases = Aliases()
+
     # Determine the potential aliases
     candidates = []
     for expr in exprs:
@@ -156,20 +159,45 @@ def collect(exprs):
         if candidate is not None:
             candidates.append(candidate)
 
-    # Group together the aliasing expressions (ultimately build an Alias for each
-    # group of aliasing expressions)
-    aliases = Aliases()
+    # Create groups of aliasing expressions
+    mapper = OrderedDict()
     unseen = list(candidates)
     while unseen:
         c = unseen.pop(0)
-
-        # Find aliasing expressions
         group = [c]
         for i in list(unseen):
             if compare_ops(c.expr, i.expr) and is_translated(c, i):
                 group.append(i)
                 unseen.remove(i)
+        assert all(c.dimensions == i.dimensions for i in group)
+        mapper.setdefault(c.dimensions, []).append(group)
+    if not mapper:
+        return aliases
 
+    for k, v in mapper.items():
+        for group in v:
+            # Determine the minimum offsets along each Dimension
+            offsets = []
+            for ofs in zip(*[c.offsets for c in group]):
+                Tofs = LabeledVector.transpose(*ofs)
+                offsets.append(LabeledVector([(d, min(v)) for d, v in Tofs]))
+
+            #TODO: SOMETHING MUST CHANGE HERE
+
+            # Construct the Basis Alias -- an alias to span all aliasing expressions
+            c = group[0]
+            subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
+                    for i, b, v in zip(c.indexeds, c.bases, offsets)}
+            alias = c.expr.xreplace(subs)
+
+            # Determine the distance of each aliasing expression from the Basis Alias
+            for i in group:
+                assert len(offsets) == len(i.offsets)
+                distance = [o.distance(c) for o, c in zip(i.offsets, offsets)]
+                distance = [(l, set(i)) for l, i in LabeledVector.transpose(*distance)]
+                from IPython import embed; embed()
+
+    for k, v in mapper.items():
         # Try creating a basis spanning the aliasing expressions' iteration vectors
         try:
             COM, distances = calculate_COM(group)
@@ -314,7 +342,7 @@ def rebuild(cluster, others, aliases, subs):
     return cluster.rebuild(exprs=exprs, ispace=ispace, dspace=dspace)
 
 
-Candidate = namedtuple('Candidate', 'expr indexeds bases offsets')
+Candidate = namedtuple('Candidate', 'expr indexeds bases offsets dimensions')
 
 
 def analyze(expr):
@@ -362,7 +390,9 @@ def analyze(expr):
         bases.append(tuple(base))
         offsets.append(LabeledVector(offset))
 
-    return Candidate(expr.rhs, indexeds, bases, offsets)
+    dimensions = frozenset(i for i, _ in LabeledVector.transpose(*offsets))
+
+    return Candidate(expr.rhs, indexeds, bases, offsets, dimensions)
 
 
 def compare_ops(e1, e2):

@@ -9,7 +9,7 @@ from devito.tools.utils import as_tuple, filter_ordered
 from devito.tools.algorithms import toposort
 
 __all__ = ['Bunch', 'EnrichedTuple', 'ReducerMap', 'DefaultOrderedDict',
-           'OrderedSet', 'PartialOrderTuple', 'DAG']
+           'OrderedSet', 'PartialOrderTuple', 'DAG', 'MinMax']
 
 
 class Bunch(object):
@@ -418,3 +418,33 @@ class DAG(object):
             return l
         else:
             raise ValueError('graph is not acyclic')
+
+
+class MinMax(dict):
+
+    def __init__(self, args):
+        vals = [(i, [np.inf, -np.inf]) for i in as_tuple(args)]
+        super(MinMax, self).__init__(vals)
+
+    def __setitem__(self, k, v):
+        if k not in self:
+            raise KeyError
+        if not isinstance(v, Iterable) or len(v) != 2:
+            raise ValueError("`v` must be an iterable of length 2")
+        super(MinMax, self).__setitem__(k, list(v))
+
+    def update(self, k, v):
+        if k not in self:
+            raise KeyError
+        if not isinstance(v, Iterable):
+            raise ValueError("`v` must be an iterable")
+        self[k][0] = min(self[k][0], *v)
+        self[k][1] = max(self[k][1], *v)
+
+    def update_from_iter(self, items):
+        if not isinstance(items, Iterable):
+            raise ValueError("`items` must be an iterable")
+        for i in items:
+            if not (isinstance(i, Iterable) and len(i) == 2):
+                raise ValueError("Each item must be an iterable of size 2")
+            self.update(*i)
