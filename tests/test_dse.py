@@ -375,7 +375,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((1, 1), (1, 1), (1, 1))
+        assert a.halo == ((0, 2), (0, 2), (0, 2))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
         assert Add(*a.symbolic_shape[2].args) == z_size + 2
@@ -416,7 +416,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 2
-        assert a.halo == ((1, 1), (1, 1))
+        assert a.halo == ((0, 2), (0, 2))
         assert Add(*a.symbolic_shape[0].args) == y0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == z_size + 2
 
@@ -458,7 +458,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((1, 1), (1, 1), (0, 0))
+        assert a.halo == ((0, 2), (0, 2), (0, 0))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
         assert a.symbolic_shape[2] == z_size
@@ -471,7 +471,7 @@ class TestAliases(object):
         assert np.all(u.data == exp)
 
     @patch("devito.passes.clusters.aliases.MIN_COST_ALIAS", 1)
-    def test_full_shape_with_subdims(self):
+    def test_full_shape_w_subdims(self):
         """
         Like `test_full_shape`, but SubDomains (and therefore SubDimensions)
         are used. Nevertheless, the temporary shape should still be dictated by
@@ -503,7 +503,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((1, 1), (1, 1), (1, 1))
+        assert a.halo == ((0, 2), (0, 2), (0, 2))
         assert Add(*a.symbolic_shape[0].args) == xi0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == yi0_blk_size + 2
         assert Add(*a.symbolic_shape[2].args) == z_M - z_m - zi_ltkn - zi_rtkn + 3
@@ -554,7 +554,6 @@ class TestAliases(object):
 
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
                   if i.is_Array]
-        from IPython import embed; embed()
         assert len(arrays) == 2
         for a in arrays:
             assert len(a.dimensions) == 3
@@ -779,7 +778,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((1, 1), (1, 1), (1, 1))
+        assert a.halo == ((0, 2), (0, 2), (0, 2))
         assert a.padding == ((0, 0), (0, 0), (0, 30))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
@@ -790,7 +789,7 @@ class TestAliases(object):
         assert len(trees) == 2
         expected_rounded = trees[0].inner
         assert expected_rounded.symbolic_max ==\
-            z.symbolic_max + (z.symbolic_max - z.symbolic_min + 3) % 16 + 1
+            z.symbolic_max + (z.symbolic_max - z.symbolic_min + 3) % 16 + 2
 
         # Check numerical output
         op0(time_M=1)

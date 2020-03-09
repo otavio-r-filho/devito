@@ -244,7 +244,6 @@ def collect(exprs):
             distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
         aliases.add(alias, aliaseds, distances)
-        from IPython import embed; embed()
 
     return aliases
 
@@ -515,11 +514,14 @@ class Group(tuple):
         """
         ret = {}
         for c in self:
+            mapper = {}
             for i, ofs in zip(c.indexeds, c.offsets):
                 f = i.function
                 for d in ofs.labels:
                     k = (set(d._defines) & set(f.dimensions)).pop()
-                    ret[d] = min(ret.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
+                    mapper[d] = min(ret.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
+            for d, v in mapper.items():
+                ret[d] = max(ret.get(d, 0), v)
         return ret
 
     @cached_property
@@ -529,6 +531,7 @@ class Group(tuple):
         """
         ret = {}
         for c in self:
+            mapper = {}
             for i, ofs in zip(c.indexeds, c.offsets):
                 f = i.function
                 for d in ofs.labels:
