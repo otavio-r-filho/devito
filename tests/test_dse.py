@@ -516,7 +516,7 @@ class TestAliases(object):
         assert np.all(u.data == exp)
 
     @patch("devito.passes.clusters.aliases.MIN_COST_ALIAS", 1)
-    def test_unmixed_shape_with_subdims(self):
+    def test_unmixed_shape_w_subdims(self):
         """
         A combination of `test_full_shape`, `test_contracted_shape` and
         `test_full_shape_with_subdims`. Make sure it boils down to full-shape
@@ -554,10 +554,11 @@ class TestAliases(object):
 
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
                   if i.is_Array]
+        from IPython import embed; embed()
         assert len(arrays) == 2
         for a in arrays:
             assert len(a.dimensions) == 3
-            assert a.halo == ((0, 1), (1, 1), (0, 0))
+            assert a.halo == ((0, 1), (0, 2), (0, 0))
             assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
             assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
             assert a.symbolic_shape[2] is z_size
@@ -570,7 +571,7 @@ class TestAliases(object):
         assert np.all(u.data == exp)
 
     @patch("devito.passes.clusters.aliases.MIN_COST_ALIAS", 1)
-    def test_no_oob(self):
+    def test_in_bounds_wo_shift(self):
         """
         Make sure the iteration space and indexing of the aliasing expressions
         are such that no out-of-bounds accesses are generated.
@@ -596,7 +597,6 @@ class TestAliases(object):
                   (u[t, x, y-3, z+1] + u[t, x+1, y-3, z+1])*3*f))
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
-        from IPython import embed; embed()
 
         x0_blk_size = op1.parameters[3]
         y0_blk_size = op1.parameters[4]
@@ -605,15 +605,15 @@ class TestAliases(object):
         # Expected one single loop nest
         assert len(op1._func_table) == 1
 
-        #arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
-        #          if i.is_Array]
-        #assert len(arrays) == 2
-        #for a in arrays:
-        #    assert len(a.dimensions) == 3
-        #    assert a.halo == ((0, 1), (1, 1), (0, 0))
-        #    assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
-        #    assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
-        #    assert a.symbolic_shape[2] is z_size
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
+                  if i.is_Array]
+        assert len(arrays) == 2
+        for a in arrays:
+            assert len(a.dimensions) == 3
+            assert a.halo == ((0, 1), (0, 2), (0, 0))
+            assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
+            assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
+            assert a.symbolic_shape[2] is z_size
 
         # Check numerical output
         op0(time_M=1)

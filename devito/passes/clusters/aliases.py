@@ -5,8 +5,8 @@ from sympy import Indexed
 import numpy as np
 
 from devito.ir import (ROUNDABLE, DataSpace, IterationInstance, Interval,
-                       IntervalGroup, LabeledVector, Stencil, detect_accesses,
-                       build_intervals)
+                       IntervalGroup, LabeledVector, detect_accesses, build_intervals)
+from devito.logger import perf_adv
 from devito.passes.clusters.utils import cluster_pass, make_is_time_invariant
 from devito.symbolics import (compare_ops, estimate_cost, q_leaf, q_sum_of_product,
                               q_terminalop, retrieve_indexed, yreplace)
@@ -163,12 +163,26 @@ def collect(exprs):
     while unseen:
         c = unseen.pop(0)
         group = [c]
-        for i in list(unseen):
-            if compare_ops(c.expr, i.expr) and is_translated(c, i):
-                group.append(i)
-                unseen.remove(i)
-        assert all(c.dimensions == i.dimensions for i in group)
-        mapper.setdefault(c.dimensions, []).append(tuple(group))
+        for u in list(unseen):
+            if c.dimensions != u.dimensions:
+                continue
+
+            # Is the arithmetic structure of `c` and `u` equivalent ?
+            if not compare_ops(c.expr, u.expr):
+                continue
+
+            # Is `c` translated w.r.t. `u` ?
+            # IOW, are their offsets pairwise translated ? For example:
+            # c := A[i,j] + A[i,j+1]     -> Toffsets = {i: [0, 0], j: [0, 1]}
+            # u := A[i+1,j] + A[i+1,j+1] -> Toffsets = {i: [1, 1], j: [0, 1]}
+            # Then `c` is translated w.r.t. `u` with distance `{i: 1, j: 0}`
+            if any(len(set(i-j)) != 1 for (_, i), (_, j) in zip(c.Toffsets, u.Toffsets)):
+                continue
+
+            group.append(u)
+            unseen.remove(u)
+
+        mapper.setdefault(c.dimensions, GroupList()).append(Group(group))
 
     # For simplicity, focus on one set of Dimensions at a time
     # Also there basically never is more than one in typical use cases
@@ -177,43 +191,30 @@ def collect(exprs):
     except KeyError:
         return Aliases()
 
-    # MLP - Maximum definitely-Legal Point (along each Dimension)
-    mlps = {}
-    for group in groups:
-        offsets = set().union(*[c.offsets for c in group])
-        Toffsets = LabeledVector.transpose(*offsets)
-        mlps.update({d: max(mlps.get(d, 0), *v) for d, v in Toffsets})
-
-    # MD - Maximum distance between two points across two any aliasing expressions
-    mds = {}
-    for group in groups:
-        for i in zip(*[c.offsets for c in group]):
-            Toffsets = LabeledVector.transpose(*i)
-            mds.update({d: max(mds.get(d, 0), max(v) - min(v)) for d, v in Toffsets})
-
-    # The iteration Intervals for these Groups
-    intervals = [Interval(d, 0, v) for d, v in mds.items()]
+    # The iteration Intervals for these groups
+    intervals = [Interval(d, 0, v) for d, v in groups.mds.items()]
 
     aliases = Aliases(intervals)
 
     for group in groups:
-        # Construct a Basis Alias
-        offsets = []
-        for i in zip(*[c.offsets for c in group]):
-            Toffsets = LabeledVector.transpose(*i)
-            items = []
-            for d, v in Toffsets:
-                if min(v) + mds[d] > mlps[d]:
-                    m = max(0, mlps[d] - mds[d])
-                else:
-                    m = min(v)
-                items.append((d, m))
-            offsets.append(LabeledVector(items))
+        shift = group.calculate_shift(groups.mds)
 
+        if not all(v != np.inf for v in shift.values()):
+            perf_adv("Increase halo size for more aggressive FLOPs reduction")
+            continue
+
+        # Construct the offsets of the Basis Alias
+        offsets = []
+        for i in group.Toffsets:
+            offsets.append(LabeledVector([(d, min(v) - shift[d]) for d, v in i]))
+
+        # Construct the alias
         c = group[0]
         subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
                 for i, b, v in zip(c.indexeds, c.bases, offsets)}
         alias = c.expr.xreplace(subs)
+
+        # The aliases expressions
         aliaseds = [i.expr for i in group]
 
         # Determine the distance of each aliasing expression from the Basis Alias
@@ -229,7 +230,6 @@ def collect(exprs):
                 # The distance of each Indexed from the Basis Alias must be
                 # uniform across all Indexeds
                 if len(v) != 1:
-                    from IPython import embed; embed()
                     raise ValueError
 
                 # The distance along the ShiftedDimensions must be identical
@@ -244,6 +244,7 @@ def collect(exprs):
             distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
         aliases.add(alias, aliaseds, distances)
+        from IPython import embed; embed()
 
     return aliases
 
@@ -411,30 +412,6 @@ def analyze(expr):
     return Candidate(expr.rhs, indexeds, bases, offsets)
 
 
-def is_translated(c1, c2):
-    """
-    Given two potential aliases ``c1`` and ``c2``, return True if ``c1``
-    is translated w.r.t. ``c2``, False otherwise.
-
-    For example: ::
-
-        c1 = A[i,j] + A[i,j+1]
-        c2 = A[i+1,j] + A[i+1,j+1]
-
-    ``c1``'s Toffsets are ``{i: [0, 0], j: [0, 1]}``, while ``c2``'s Toffsets are
-    ``{i: [1, 1], j: [0, 1]}``. Then, ``c2`` is translated w.r.t. ``c1`` by
-    ``(1, 0)``, and True is returned.
-    """
-    assert len(c1.offsets) == len(c2.offsets)
-
-    # Transpose `offsets` so that
-    # offsets = [{x: 2, y: 0}, {x: 1, y: 3}] => {x: [2, 1], y: [0, 3]}
-    Toffsets1 = LabeledVector.transpose(*c1.offsets)
-    Toffsets2 = LabeledVector.transpose(*c2.offsets)
-
-    return all(len(set(i - j)) == 1 for (_, i), (_, j) in zip(Toffsets1, Toffsets2))
-
-
 def calculate_COM(group):
     """
     Determine a centre of mass (COM) for a group of definitely aliasing expressions,
@@ -503,7 +480,7 @@ class ShiftedDimension(IncrDimension):
 
 
 class Candidate(object):
-    
+
     def __init__(self, expr, indexeds, bases, offsets):
         self.expr = expr
         self.indexeds = indexeds
@@ -520,6 +497,76 @@ class Candidate(object):
     @cached_property
     def dimensions(self):
         return frozenset(i for i, _ in self.Toffsets)
+
+
+class Group(tuple):
+
+    def __repr__(self):
+        return "Group(%s)" % ", ".join([str(i) for i in self])
+
+    @cached_property
+    def Toffsets(self):
+        return [LabeledVector.transpose(*i) for i in zip(*[i.offsets for i in self])]
+
+    @cached_property
+    def mlis(self):
+        """
+        MLIs - Maximum definitely-Legal Increment along each Dimensions.
+        """
+        ret = {}
+        for c in self:
+            for i, ofs in zip(c.indexeds, c.offsets):
+                f = i.function
+                for d in ofs.labels:
+                    k = (set(d._defines) & set(f.dimensions)).pop()
+                    ret[d] = min(ret.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
+        return ret
+
+    @cached_property
+    def mlds(self):
+        """
+        MLDs - Maximum definitely-Legal Decrement along each Dimensions.
+        """
+        ret = {}
+        for c in self:
+            for i, ofs in zip(c.indexeds, c.offsets):
+                f = i.function
+                for d in ofs.labels:
+                    ret[d] = min(ret.get(d, np.inf), ofs[d])
+        return ret
+
+    def calculate_shift(self, mds):
+        ret = {}
+        for i in self.Toffsets:
+            for d, v in i:
+                n_extra_iters = mds[d] - self.mlis[d]
+                if n_extra_iters <= 0:
+                    # All good
+                    ret[d] = ret.get(d, 0)
+                elif n_extra_iters <= self.mlds[d]:
+                    # Definitely need to shift
+                    ret[d] = max(ret.get(d, 0), n_extra_iters)
+                else:
+                    ret[d] = np.inf
+
+        return ret
+
+
+class GroupList(list):
+
+    def __repr__(self):
+        return "GroupList(%s)" % ", ".join([str(i) for i in self])
+
+    @cached_property
+    def mds(self):
+        """
+        MDs - Maximum Distance between two points across any two aliasing expressions.
+        """
+        ret = {}
+        for group in self:
+            for i in group.Toffsets:
+                ret.update({d: max(ret.get(d, 0), max(v) - min(v)) for d, v in i})
+        return ret
 
 
 class Aliases(OrderedDict):
