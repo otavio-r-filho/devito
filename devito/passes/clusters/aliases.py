@@ -520,11 +520,7 @@ class Group(tuple):
                 f = i.function
                 for d in ofs.labels:
                     k = (set(d._defines) & set(f.dimensions)).pop()
-                    a = mapper.get(d)
-                    mapper[d] = min(ret.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
-                    if str(c.expr) == '-r26[x, y + 1, z + 1]*r85[xs, ys + 1, z + 1] - r27[x, y + 1, z + 1]*r28[x, y + 1, z + 1]*r86[xs, ys + 1, z + 1] - r28[x, y + 1, z + 1]*r29[x, y + 1, z + 1]*r87[xs, ys + 1, z + 1]':
-                        from IPython import embed; embed()
-
+                    mapper[d] = min(mapper.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
             for d, v in mapper.items():
                 ret[d] = max(ret.get(d, 0), v)
         return ret
@@ -536,7 +532,6 @@ class Group(tuple):
         """
         ret = {}
         for c in self:
-            mapper = {}
             for i, ofs in zip(c.indexeds, c.offsets):
                 f = i.function
                 for d in ofs.labels:
