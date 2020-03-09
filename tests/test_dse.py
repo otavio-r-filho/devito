@@ -952,7 +952,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((1, 1), (1, 1), (1, 1))
+        assert a.halo == ((0, 2), (0, 2), (0, 2))
         assert Add(*a.symbolic_shape[0].args) == x.symbolic_size + 2
         assert Add(*a.symbolic_shape[1].args) == y.symbolic_size + 2
         assert Add(*a.symbolic_shape[2].args) == z.symbolic_size + 2
