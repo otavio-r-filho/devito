@@ -187,35 +187,29 @@ def collect(exprs):
     # For simplicity, focus on one set of Dimensions at a time
     # Also there basically never is more than one in typical use cases
     try:
-        dimensions, groups = mapper.popitem()
+        _, groups = mapper.popitem()
     except KeyError:
         return Aliases()
 
-    # The iteration Intervals for these groups
-    intervals = [Interval(d, 0, v) for d, v in groups.mds.items()]
-
-    aliases = Aliases(intervals)
+    aliases = Aliases(groups.mds)
 
     for group in groups:
         shift = group.calculate_shift(groups.mds)
 
         if not all(v != np.inf for v in shift.values()):
             perf_adv("Increase halo size for more aggressive FLOPs reduction")
-            from IPython import embed; embed()
             continue
 
-        # Construct the offsets of the Basis Alias
+        # Construct the Basis Alias
         offsets = []
         for i in group.Toffsets:
             offsets.append(LabeledVector([(d, min(v) - shift[d]) for d, v in i]))
-
-        # Construct the alias
         c = group[0]
         subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
                 for i, b, v in zip(c.indexeds, c.bases, offsets)}
         alias = c.expr.xreplace(subs)
 
-        # The aliases expressions
+        # The aliasing expressions
         aliaseds = [i.expr for i in group]
 
         # Determine the distance of each aliasing expression from the Basis Alias
@@ -224,24 +218,8 @@ def collect(exprs):
             assert len(offsets) == len(i.offsets)
             distance = [o.distance(v) for o, v in zip(i.offsets, offsets)]
             distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
-
-            distance_mapper = OrderedDict(distance)
-            distance = []
-            for d, v in distance_mapper.items():
-                # The distance of each Indexed from the Basis Alias must be
-                # uniform across all Indexeds
-                if len(v) != 1:
-                    raise ValueError
-
-                # The distance along the ShiftedDimensions must be identical
-                # to that of their parent
-                if isinstance(d, ShiftedDimension):
-                    if v != distance_mapper.get(d.parent, v):
-                        raise ValueError
-                    continue
-
-                distance.append((d, v))
-
+            if any(len(v) != 1 for d, v in distance):
+                raise ValueError
             distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
 
         aliases.add(alias, aliaseds, distances)
@@ -282,6 +260,10 @@ def process(cluster, candidates, aliases, template, platform):
         index = writeto.index(dep_inducing[0])
         writeto = writeto[index:]
 
+    # The access Dimensions may differ from `writeto.dimensions`. This may
+    # happen e.g. if ShiftedDimensions are introduced (`a[x,y]` -> `a[xs,y]`)
+    adims = [aliases.index_mapper.get(d, d) for d in writeto.dimensions]
+
     clusters = []
     subs = {}
     for origin, (aliaseds, distances) in aliases.items():
@@ -300,10 +282,6 @@ def process(cluster, candidates, aliases, template, platform):
                       halo=[(abs(i.lower), abs(i.upper)) for i in writeto],
                       dtype=cluster.dtype, scope=scope)
 
-        # The access Dimensions may differ from `writeto.dimensions`. This may
-        # happen e.g. if ShiftedDimensions are introduced (`a[x,y]` -> `a[xs,y]`)
-        adims = [aliases.index_mapper.get(d, d) for d in writeto.dimensions]
-
         # The expression computing `alias`
         indices = [d - (0 if writeto[d].is_Null else writeto[d].lower) for d in adims]
         expression = Eq(array[indices], origin.xreplace(subs))
@@ -311,7 +289,6 @@ def process(cluster, candidates, aliases, template, platform):
         # Create the substitution rules so that we can use the newly created
         # temporary in place of the aliasing expressions
         for aliased, distance in zip(aliaseds, distances):
-            assert len(adims) == len(writeto)
             assert all(i.dim in distance.labels for i in writeto)
 
             indices = [d - i.lower + distance[i.dim] for d, i in zip(adims, writeto)]
@@ -441,36 +418,7 @@ def calculate_COM(group):
                     raise ValueError
         COM.append(LabeledVector(entries))
 
-    # Calculate the distance from the COM
-    distances = []
-    for i in group:
-        assert len(COM) == len(i.offsets)
-        distance = [o.distance(c) for o, c in zip(i.offsets, COM)]
-        distance = [(l, set(i)) for l, i in LabeledVector.transpose(*distance)]
-
-        if any(len(i) != 1 for l, i in distance):
-            raise ValueError
-
-        mapper = OrderedDict(distance)
-        distance = []
-        for d, v in mapper.items():
-            # The distance of each Indexed from the COM must be uniform across
-            # all Indexeds
-            if len(v) != 1:
-                raise ValueError
-
-            # The distance along ShiftedDimensions must be identical to that
-            # of their parent
-            if isinstance(d, ShiftedDimension):
-                if v != mapper.get(d.parent, v):
-                    raise ValueError
-                continue
-
-            distance.append((d, v))
-
-        distances.append(LabeledVector([(d, v.pop()) for d, v in distance]))
-
-    return COM, distances
+    return COM
 
 
 class ShiftedDimension(IncrDimension):
@@ -500,6 +448,10 @@ class Candidate(object):
 
 
 class Group(tuple):
+
+    """
+    A collection of aliasing expressions.
+    """
 
     def __repr__(self):
         return "Group(%s)" % ", ".join([str(i) for i in self])
@@ -557,6 +509,10 @@ class Group(tuple):
 
 class GroupList(list):
 
+    """
+    Multiple collections of aliasing expressions over the same set of Dimensions.
+    """
+
     def __repr__(self):
         return "GroupList(%s)" % ", ".join([str(i) for i in self])
 
@@ -574,15 +530,29 @@ class GroupList(list):
 
 class Aliases(OrderedDict):
 
-    def __init__(self, intervals=None):
-        super(Aliases, self).__init__()
+    """
+    A mapper between aliases and collections of aliased expressions.
+    """
 
-        self.intervals = intervals or []
+    def __init__(self, mds=None):
+        super(Aliases, self).__init__()
         self.index_mapper = {}
+
+        self.mds = mds or {}
 
     @cached_property
     def dimensions(self):
-        return tuple(i.dim for i in self.intervals)
+        return tuple(self.mds)
+
+    @cached_property
+    def intervals(self):
+        ret = {}
+        for d, v in self.mds.items():
+            if isinstance(d, ShiftedDimension):
+                if self.mds.get(d.parent) == v:
+                    continue
+            ret[d] = Interval(d, 0, v)
+        return tuple(ret.values())
 
     def add(self, alias, aliaseds, distances):
         assert len(aliaseds) == len(distances)
