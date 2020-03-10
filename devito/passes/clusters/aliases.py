@@ -6,11 +6,9 @@ import numpy as np
 
 from devito.ir import (ROUNDABLE, DataSpace, IterationInstance, Interval,
                        IntervalGroup, LabeledVector, detect_accesses, build_intervals)
-from devito.logger import perf_adv
 from devito.passes.clusters.utils import cluster_pass, make_is_time_invariant
 from devito.symbolics import (compare_ops, estimate_cost, q_leaf, q_sum_of_product,
                               q_terminalop, retrieve_indexed, yreplace)
-from devito.tools import MinMax
 from devito.types import Array, Eq, IncrDimension, Scalar
 
 __all__ = ['cire']
@@ -182,7 +180,7 @@ def collect(exprs):
             group.append(u)
             unseen.remove(u)
 
-        mapper.setdefault(c.dimensions, GroupList()).append(Group(group))
+        mapper.setdefault(c.dimensions, []).append(Group(group))
 
     # For simplicity, focus on one set of Dimensions at a time
     # Also there basically never is more than one in typical use cases
@@ -191,19 +189,31 @@ def collect(exprs):
     except KeyError:
         return Aliases()
 
+    groups = MultiGroup(groups)
     aliases = Aliases(groups.mds)
 
     for group in groups:
-        shift = group.calculate_shift(groups.mds)
-
-        if not all(v != np.inf for v in shift.values()):
-            perf_adv("Increase halo size for more aggressive FLOPs reduction")
-            continue
+        #TODO:
+        # * MOVE SHIFT CALCULATIONS TO MultiGroup (rename as "shifts" (cached_property))
+        #   ... RIGHT AFTER THE MDS CALCULATION
+        # * NOW, When calculating the intervals, if shifts are required,
+        #   take the min point and shift ; otherwise, heuristically, pick
+        #   the middle point
+        # * STILL, CHECK TTI so12 w/o heuristic above
+        shift = groups.shifts[group]
 
         # Construct the Basis Alias
         offsets = []
         for i in group.Toffsets:
-            offsets.append(LabeledVector([(d, min(v) - shift[d]) for d, v in i]))
+            items = []
+            for d, v in i:
+                try:
+                    items.append((d, min(v) - shift[d]))
+                except TypeError:
+                    # E.g., `v = (x_m - x + 5, x_m - x + 5, ...)`
+                    assert len(set(v)) == 1
+                    items.append((d, v[0] - shift[d]))
+            offsets.append(LabeledVector(items))
         c = group[0]
         subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
                 for i, b, v in zip(c.indexeds, c.bases, offsets)}
@@ -389,38 +399,6 @@ def analyze(expr):
     return Candidate(expr.rhs, indexeds, bases, offsets)
 
 
-def calculate_COM(group):
-    """
-    Determine a centre of mass (COM) for a group of definitely aliasing expressions,
-    which is a set of bases spanning all iteration vectors.
-
-    Return the COM as well as the vector distance of each aliasing expression from
-    the COM.
-    """
-    # Find the COM
-    COM = []
-    for ofs in zip(*[i.offsets for i in group]):
-        Tofs = LabeledVector.transpose(*ofs)
-        entries = []
-        for k, v in Tofs:
-            try:
-                entries.append((k, int(np.mean(v, dtype=int))))
-            except TypeError:
-                # At least an element in `v` has symbolic components. Even though
-                # `analyze` guarantees that no accesses can be irregular, a symbol
-                # might still be present as long as it's constant (i.e., known to
-                # be never written to). For example: `A[t, x_m + 2, y, z]`
-                # At this point, the only chance we have is that the symbolic entry
-                # is identical across all elements in `v`
-                if len(set(v)) == 1:
-                    entries.append((k, v[0]))
-                else:
-                    raise ValueError
-        COM.append(LabeledVector(entries))
-
-    return COM
-
-
 class ShiftedDimension(IncrDimension):
 
     def __new__(cls, d, name):
@@ -471,8 +449,14 @@ class Group(tuple):
             for i, ofs in zip(c.indexeds, c.offsets):
                 f = i.function
                 for d in ofs.labels:
-                    k = (set(d._defines) & set(f.dimensions)).pop()
-                    mapper[d] = min(mapper.get(d, np.inf), sum(f._size_halo[k]) - ofs[d])
+                    try:
+                        # Assume `ofs[d]` is a number (typical case)
+                        k = (set(d._defines) & set(f.dimensions)).pop()
+                        v = sum(f._size_halo[k]) - ofs[d]
+                        mapper[d] = min(mapper.get(d, np.inf), v)
+                    except TypeError:
+                        # E.g., `ofs[d] = x_m - x + 5`
+                        mapper[d] = 0
             for d, v in mapper.items():
                 ret[d] = max(ret.get(d, 0), v)
         return ret
@@ -487,45 +471,83 @@ class Group(tuple):
             for i, ofs in zip(c.indexeds, c.offsets):
                 f = i.function
                 for d in ofs.labels:
-                    ret[d] = min(ret.get(d, np.inf), ofs[d])
-        return ret
-
-    def calculate_shift(self, mds):
-        ret = {}
-        for i in self.Toffsets:
-            for d, v in i:
-                n_extra_iters = mds[d] - self.mlis[d]
-                if n_extra_iters <= 0:
-                    # All good
-                    ret[d] = ret.get(d, 0)
-                elif n_extra_iters <= self.mlds[d]:
-                    # Definitely need to shift
-                    ret[d] = max(ret.get(d, 0), n_extra_iters)
-                else:
-                    ret[d] = np.inf
-
+                    try:
+                        # Assume `ofs[d]` is a number (typical case)
+                        ret[d] = min(ret.get(d, np.inf), ofs[d])
+                    except TypeError:
+                        # E.g., `ofs[d] = x_m - x + 5`
+                        ret[d] = 0
         return ret
 
 
-class GroupList(list):
+class MultiGroup(tuple):
 
     """
     Multiple collections of aliasing expressions over the same set of Dimensions.
     """
 
-    def __repr__(self):
-        return "GroupList(%s)" % ", ".join([str(i) for i in self])
+    def __new__(cls, groups):
+        # MDs - Maximum Distance between two points across any two
+        # aliasing expressions. 
+        # Note: if a Group makes it impossible to calculate the MDs (e.g., due
+        # to non-homogeneous symbolic components), then the Group is dropped
+        mds = {}
+        for group in list(groups):
+            try:
+                for i in group.Toffsets:
+                    for d, v in i:
+                        try:
+                            distance = max(v) - min(v)
+                        except TypeError:
+                            # An entry in `v` has symbolic components, e.g. `x_m + 2`
+                            if len(set(v)) == 1:
+                                # All good
+                                distance = 0
+                            else:
+                                # Must drop `group`
+                                raise ValueError
+                        mds[d] = max(mds.get(d, 0), distance)
+            except ValueError:
+                groups.remove(group)
 
-    @cached_property
-    def mds(self):
-        """
-        MDs - Maximum Distance between two points across any two aliasing expressions.
-        """
-        ret = {}
-        for group in self:
-            for i in group.Toffsets:
-                ret.update({d: max(ret.get(d, 0), max(v) - min(v)) for d, v in i})
-        return ret
+        # For each Group, the required shifting along each Dimension to avoid OOB
+        # Note: if not enough buffer to shift, then the Group is dropped
+        shifts = {}
+        for group in list(groups):
+            try:
+                mapper = {}
+                for i in group.Toffsets:
+                    for d, v in i:
+                        n_extra_iters = mds[d] - group.mlis[d]
+                        if n_extra_iters <= 0:
+                            # All good
+                            mapper[d] = mapper.get(d, 0)
+                        elif n_extra_iters <= group.mlds[d]:
+                            # Definitely need to shift
+                            mapper[d] = max(mapper.get(d, 0), n_extra_iters)
+                        else:
+                            # Must drop `group`
+                            raise ValueError
+                shifts[group] = mapper
+            except ValueError:
+                groups.remove(group)
+
+        obj = super(MultiGroup, cls).__new__(cls, groups)
+        obj.mds = mds
+        obj.shifts = shifts
+
+        return obj
+
+    def __repr__(self):
+        return "MultiGroup(%s)" % ", ".join([str(i) for i in self])
+
+    @property
+    def needs_shifting(self):
+        for i in self:
+            for d, v in self.shifts[i].items():
+                if v != 0:
+                    return True
+        return False
 
 
 class Aliases(OrderedDict):
@@ -538,21 +560,17 @@ class Aliases(OrderedDict):
         super(Aliases, self).__init__()
         self.index_mapper = {}
 
-        self.mds = mds or {}
+        mds = mds or {}
 
-    @cached_property
-    def dimensions(self):
-        return tuple(self.mds)
+        self.dimensions = tuple(mds)
 
-    @cached_property
-    def intervals(self):
-        ret = {}
-        for d, v in self.mds.items():
+        intervals = []
+        for d, v in mds.items():
             if isinstance(d, ShiftedDimension):
-                if self.mds.get(d.parent) == v:
+                if mds.get(d.parent) == v:
                     continue
-            ret[d] = Interval(d, 0, v)
-        return tuple(ret.values())
+            intervals.append(Interval(d, 0, v))
+        self.intervals = tuple(intervals)
 
     def add(self, alias, aliaseds, distances):
         assert len(aliaseds) == len(distances)

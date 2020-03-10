@@ -621,6 +621,53 @@ class TestAliases(object):
         op1(time_M=1)
         assert np.all(u.data == exp)
 
+    @patch("devito.passes.clusters.aliases.MIN_COST_ALIAS", 1)
+    def test_constant_symbolic_distance(self):
+        """
+        Test the detection of aliasing expressions in the case of a
+        constant symbolic distance, such as `a[t, x_m+2, y, z]` when the
+        Dimensions are `(t, x, y, z)`; here, `x_m + 2` is a constant
+        symbolic access.
+        """
+        grid = Grid(shape=(3, 3, 3))
+        x, y, z = grid.dimensions  # noqa
+        x_m = x.symbolic_min
+        t = grid.stepping_dim
+
+        f = Function(name='f', grid=grid)
+        f.data_with_halo[:] = 1.
+        u = TimeFunction(name='u', grid=grid, space_order=3)
+        u.data_with_halo[:] = 0.5
+
+        # Leads to 2D aliases
+        eqn = Eq(u.forward, ((u[t, x_m+2, y, z] + u[t, x_m+2, y+1, z+1])*3*f +
+                             (u[t, x_m+2, y+2, z+2] + u[t, x_m+2, y+3, z+3])*3*f + 1))
+        op0 = Operator(eqn, opt=('noop', {'openmp': True}))
+        op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
+        from IPython import embed; embed()
+
+        x0_blk_size = op1.parameters[2]
+        y0_blk_size = op1.parameters[3]
+        z_size = op1.parameters[4]
+
+        # Check Array shape
+        #arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
+        #          if i.is_Array]
+        #assert len(arrays) == 1
+        #a = arrays[0]
+        #assert len(a.dimensions) == 3
+        #assert a.halo == ((0, 2), (0, 2), (0, 2))
+        #assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
+        #assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
+        #assert Add(*a.symbolic_shape[2].args) == z_size + 2
+
+        # Check numerical output
+        op0(time_M=1)
+        exp = np.copy(u.data[:])
+        u.data_with_halo[:] = 0.5
+        op1(time_M=1)
+        assert np.all(u.data == exp)
+
     def test_composite(self):
         """
         Check that composite alias are optimized away through "smaller" aliases.
@@ -855,6 +902,7 @@ class TestAliases(object):
                 [Eq(f.forward, deriv2 + f + e.forward.dx)])
 
         op = Operator(eqns)
+        from IPython import embed; embed()
 
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
         assert len(arrays) == 3
