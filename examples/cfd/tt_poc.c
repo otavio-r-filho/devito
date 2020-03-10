@@ -64,13 +64,11 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
   int(*source_id)[u_vec->size[1]][u_vec->size[2]] = (int(*)[u_vec->size[1]][u_vec->size[2]])_source_id;
   int(*source_mask)[u_vec->size[1]][u_vec->size[2]] = (int(*)[u_vec->size[1]][u_vec->size[2]])_source_mask;
 
-// Inspection start
+  // Inspection start
   for (int time = time_m; time <= time_M; time += 1)
   {
-#pragma omp parallel num_threads(nthreads_nonaffine)
     {
       int chunk_size = (int)(fmax(1, (1.0F / 3.0F) * (p_src_M - p_src_m + 1) / nthreads_nonaffine));
-#pragma omp for collapse(1) schedule(dynamic, chunk_size)
       for (int p_src = p_src_m; p_src <= p_src_M; p_src += 1)
       {
         int ii_src_0 = (int)(floor((-o_x + src_coords[p_src][0]) / h_x));
@@ -84,20 +82,15 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         float pz = (float)(-h_z * (int)(floor((-o_z + src_coords[p_src][2]) / h_z)) - o_z + src_coords[p_src][2]);
         if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_2 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_2 <= z_M + 1)
         {
-          //float r3 = 1.0e-4F * (-px * py * pz / (h_x * h_y * h_z) + px * py / (h_x * h_y) + px * pz / (h_x * h_z) - px / h_x + py * pz / (h_y * h_z) - py / h_y - pz / h_z + 1) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] += r3;
-          if (source_mask[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] == 0)
-          {
-            source_id[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] = id++;
-            source_mask[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] = 1;
-          }
+            if (source_mask[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] == 0)
+            {
+              source_id[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] = id++;
+              source_mask[ii_src_0 + 8][ii_src_1 + 8][ii_src_2 + 8] = 1;
+            }
+          
         }
         if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1)
         {
-          //float r4 = 1.0e-4F * (px * py * pz / (h_x * h_y * h_z) - px * pz / (h_x * h_z) - py * pz / (h_y * h_z) + pz / h_z) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8] += r4;
           if (source_mask[ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8] == 0)
           {
             source_id[ii_src_0 + 8][ii_src_1 + 8][ii_src_3 + 8] = id++;
@@ -106,16 +99,14 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
         if (ii_src_0 >= x_m - 1 && ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1)
         {
-          //float r5 = 1.0e-4F * (px * py * pz / (h_x * h_y * h_z) - px * py / (h_x * h_y) - py * pz / (h_y * h_z) + py / h_y) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] += r5;
-          source_mask[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] = 1;
+          if (source_mask[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] == 0)
+          {
+            source_id[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] = id++;
+            source_mask[ii_src_0 + 8][ii_src_4 + 8][ii_src_2 + 8] = 1;
+          }
         }
         if (ii_src_0 >= x_m - 1 && ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1)
         {
-          //float r6 = 1.0e-4F * (-px * py * pz / (h_x * h_y * h_z) + py * pz / (h_y * h_z)) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8] += r6;
           if (source_mask[ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8] == 0)
           {
             source_id[ii_src_0 + 8][ii_src_4 + 8][ii_src_3 + 8] = id++;
@@ -124,9 +115,6 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
         if (ii_src_1 >= y_m - 1 && ii_src_2 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_2 <= z_M + 1 && ii_src_5 <= x_M + 1)
         {
-          //float r7 = 1.0e-4F * (px * py * pz / (h_x * h_y * h_z) - px * py / (h_x * h_y) - px * pz / (h_x * h_z) + px / h_x) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8] += r7;
           if (source_mask[ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8] == 0)
           {
             source_id[ii_src_5 + 8][ii_src_1 + 8][ii_src_2 + 8] = id++;
@@ -135,9 +123,6 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
         if (ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1 && ii_src_5 <= x_M + 1)
         {
-          //float r8 = 1.0e-4F * (-px * py * pz / (h_x * h_y * h_z) + px * pz / (h_x * h_z)) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8] += r8;
           if (source_mask[ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8] == 0)
           {
             source_id[ii_src_5 + 8][ii_src_1 + 8][ii_src_3 + 8] = id++;
@@ -146,9 +131,6 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
         if (ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
         {
-          //float r9 = 1.0e-4F * (-px * py * pz / (h_x * h_y * h_z) + px * py / (h_x * h_y)) * src[time][p_src];
-#pragma omp atomic update
-          //u[t1][ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8] += r9;
           if (source_mask[ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8] == 0)
           {
             source_id[ii_src_5 + 8][ii_src_4 + 8][ii_src_2 + 8] = id++;
@@ -157,9 +139,6 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
         if (ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
         {
-          //float r10 = 1.0e-4F * px * py * pz * src[time][p_src] / (h_x * h_y * h_z);
-#pragma omp atomic update
-          //u[t1][ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8] += r10;
           if (source_mask[ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8] == 0)
           {
             source_id[ii_src_5 + 8][ii_src_4 + 8][ii_src_3 + 8] = id++;
@@ -168,37 +147,21 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
         }
       }
     }
-// Inspection end
-    /* End section1 */
-
-    //printf("\n Validate source: %d", p_src);
-    //xx = src_coords[p_src][0];
-    //yy = src_coords[p_src][1];
-    //zz = src_coords[p_src][2];
-
-    //if (source_mask[xx][yy][zz] == 0)
-    //{
-    //  source_id[xx][yy][zz] = id++;
-    //printf("\n Source_id is  in : %d, %d, %d, %d ", xx, yy, zz, source_id[xx][yy][zz]);
-    //  source_mask[xx][yy][zz] = 1;
-    //printf("\n Source_mask is : %d, %d, %d, %d", xx, yy, zz, source_mask[xx][yy][zz] );
-    //}
   }
 
   int ***sparse_source_id; //Grid 1
-  sparse_source_id = malloc_3d_int(nrows, ncols, id);
-  initialize3_int(nrows, ncols, id, sparse_source_id, 0);
+  sparse_source_id = malloc_3d_int(u_vec->size[1], u_vec->size[2], id);
+  initialize3_int(u_vec->size[1], u_vec->size[2], id, sparse_source_id, 0);
 
   int ***sparse_source_mask; //Grid 1
-  sparse_source_mask = malloc_3d_int(nrows, ncols, id);
-  initialize3_int(nrows, ncols, id, sparse_source_mask, 0);
+  sparse_source_mask = malloc_3d_int(u_vec->size[1], u_vec->size[2], id);
+  initialize3_int(u_vec->size[1], u_vec->size[2], id, sparse_source_mask, 0);
 
   int nnz = 0;
   int spzi = 0;
 
-
   int **sparse_source_mask_NNZ;
-  sparse_source_mask_NNZ = malloc_2d_int(nrows, ncols);
+  sparse_source_mask_NNZ = malloc_2d_int(u_vec->size[1], u_vec->size[2]);
 
   for (int xi = x_m; xi < x_M; xi++)
   {
@@ -226,21 +189,25 @@ int Kernel(const float h_x, const float h_y, const float h_z, const float o_x, c
     }
   }
 
-  float **save_src;
-  save_src = malloc_2d_float(id, timesteps);
-  initialize2(id, timesteps, save_src, 0.0F);
+// Sparse structs are built here
 
-  for (int ti = 0; ti < timesteps; ti++)
+
+
+  float **save_src;
+  save_src = malloc_2d_float(id, time_M);
+  initialize2(id, time_M, save_src, 0.0F);
+
+  for (int ti = 0; ti < time_M; ti++)
   {
     for (int p_src = 0; p_src < p_src_M; p_src++)
     {
       //printf("\n Validate source: %d", p_src);
 
-      xx = src_coords[p_src][0];
-      yy = src_coords[p_src][1];
-      zz = src_coords[p_src][2];
+      //xx = src_coords[p_src][0];
+      //yy = src_coords[p_src][1];
+      //zz = src_coords[p_src][2];
       //printf("\n B Saved src is with : %d, %d, %d, %f ti = %d", xx, yy, zz, save_src[source_id[xx][yy][zz]][ti], ti);
-      save_src[(source_id[xx][yy][zz])][ti] += src[ti][p_src];
+      //save_src[(source_id[xx][yy][zz])][ti] += src[ti][p_src];
       //printf("\n A Saved src is with : %d, %d, %d, %f ti = %d", xx, yy, zz, save_src[source_id[xx][yy][zz]][ti], ti);
     }
   }
