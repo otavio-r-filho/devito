@@ -375,7 +375,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((0, 2), (0, 2), (0, 2))
+        assert a.halo == ((1, 1), (1, 1), (1, 1))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
         assert Add(*a.symbolic_shape[2].args) == z_size + 2
@@ -416,7 +416,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 2
-        assert a.halo == ((0, 2), (0, 2))
+        assert a.halo == ((1, 1), (1, 1))
         assert Add(*a.symbolic_shape[0].args) == y0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == z_size + 2
 
@@ -458,7 +458,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((0, 2), (0, 2), (0, 0))
+        assert a.halo == ((1, 1), (1, 1), (0, 0))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
         assert a.symbolic_shape[2] == z_size
@@ -503,7 +503,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((0, 2), (0, 2), (0, 2))
+        assert a.halo == ((1, 1), (1, 1), (1, 1))
         assert Add(*a.symbolic_shape[0].args) == xi0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == yi0_blk_size + 2
         assert Add(*a.symbolic_shape[2].args) == z_M - z_m - zi_ltkn - zi_rtkn + 3
@@ -557,8 +557,8 @@ class TestAliases(object):
         assert len(arrays) == 2
         for a in arrays:
             assert len(a.dimensions) == 3
-            assert a.halo == ((0, 1), (0, 2), (0, 0))
-            assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
+            assert a.halo == ((1, 1), (1, 1), (0, 0))
+            assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
             assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
             assert a.symbolic_shape[2] is z_size
 
@@ -644,22 +644,21 @@ class TestAliases(object):
                              (u[t, x_m+2, y+2, z+2] + u[t, x_m+2, y+3, z+3])*3*f + 1))
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
-        from IPython import embed; embed()
 
-        x0_blk_size = op1.parameters[2]
-        y0_blk_size = op1.parameters[3]
-        z_size = op1.parameters[4]
+        x0_blk_size = op1.parameters[4]
+        y0_blk_size = op1.parameters[9]
+        z_size = op1.parameters[5]
 
         # Check Array shape
-        #arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
-        #          if i.is_Array]
-        #assert len(arrays) == 1
-        #a = arrays[0]
-        #assert len(a.dimensions) == 3
-        #assert a.halo == ((0, 2), (0, 2), (0, 2))
-        #assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
-        #assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
-        #assert Add(*a.symbolic_shape[2].args) == z_size + 2
+        arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
+                  if i.is_Array]
+        assert len(arrays) == 1
+        a = arrays[0]
+        assert len(a.dimensions) == 3
+        assert a.halo == ((0, 0), (1, 1), (1, 1))
+        assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
+        assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
+        assert Add(*a.symbolic_shape[2].args) == z_size + 2
 
         # Check numerical output
         op0(time_M=1)
@@ -825,7 +824,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((0, 2), (0, 2), (0, 2))
+        assert a.halo == ((1, 1), (1, 1), (1, 1))
         assert a.padding == ((0, 0), (0, 0), (0, 30))
         assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
         assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
@@ -836,7 +835,7 @@ class TestAliases(object):
         assert len(trees) == 2
         expected_rounded = trees[0].inner
         assert expected_rounded.symbolic_max ==\
-            z.symbolic_max + (z.symbolic_max - z.symbolic_min + 3) % 16 + 2
+            z.symbolic_max + (z.symbolic_max - z.symbolic_min + 3) % 16 + 1
 
         # Check numerical output
         op0(time_M=1)
@@ -902,7 +901,6 @@ class TestAliases(object):
                 [Eq(f.forward, deriv2 + f + e.forward.dx)])
 
         op = Operator(eqns)
-        from IPython import embed; embed()
 
         arrays = [i for i in FindSymbols().visit(op) if i.is_Array]
         assert len(arrays) == 3
@@ -1000,7 +998,7 @@ class TestAliases(object):
         assert len(arrays) == 1
         a = arrays[0]
         assert len(a.dimensions) == 3
-        assert a.halo == ((0, 2), (0, 2), (0, 2))
+        assert a.halo == ((1, 1), (1, 1), (1, 1))
         assert Add(*a.symbolic_shape[0].args) == x.symbolic_size + 2
         assert Add(*a.symbolic_shape[1].args) == y.symbolic_size + 2
         assert Add(*a.symbolic_shape[2].args) == z.symbolic_size + 2
