@@ -221,16 +221,19 @@ def collect(exprs):
             for i in group.Toffsets:
                 for d, v in i:
                     n_extra_iters = mds[d] - group.mlis[d]
-                    if n_extra_iters > 0:
-                        if n_extra_iters <= group.mlds[d]:
-                            # Need and can shift
-                            mapper[d] = max(mapper[d], n_extra_iters)
-                        else:
-                            # Need but cannot shift -- must drop `group`
-                            raise ValueError
+                    if n_extra_iters <= 0:
+                        # All good
+                        pass
+                    elif n_extra_iters <= group.mlds[d]:
+                        # Need and can shift
+                        mapper[d] = max(mapper[d], n_extra_iters)
+                    else:
+                        # Need but cannot shift -- must drop `group`
+                        raise ValueError
             shifts.append(mapper)
         except ValueError:
             groups.remove(group)
+    from IPython import embed; embed()
 
     # Filter off Dimensions not defining an iteration Interval
     for d, v in list(mds.items()):

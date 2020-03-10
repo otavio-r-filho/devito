@@ -570,10 +570,10 @@ class TestAliases(object):
         assert np.all(u.data == exp)
 
     @patch("devito.passes.clusters.aliases.MIN_COST_ALIAS", 1)
-    def test_in_bounds_wo_shift(self):
+    def test_in_bounds_w_shift(self):
         """
         Make sure the iteration space and indexing of the aliasing expressions
-        are such that no out-of-bounds accesses are generated.
+        are shifted such that no out-of-bounds accesses are generated.
         """
         grid = Grid(shape=(3, 3, 3))
         x, y, z = grid.dimensions  # noqa
