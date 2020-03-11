@@ -190,129 +190,61 @@ def collect(exprs):
     except KeyError:
         return Aliases()
 
-
-    rotationss = [group.rotations for group in groups]
-    assert all(set(rotations) == dimensions for rotations in rotationss)
-
-    
-    from IPython import embed; embed()
-
-    # MDs - Maximum Distance between two points across any two aliasing expressions. 
-    # Note: if a Group makes it impossible to calculate the MDs (e.g., due
-    # to non-homogeneous symbolic components), then the Group is dropped
-    mds = {}
+    # Build a rotations table for the maximum diameter
+    # Note: Groups that cannot compute their diameter are dropped
+    mapper = defaultdict(int)
     for group in list(groups):
         try:
-            for i in group.Toffsets:
-                for d, v in i:
-                    try:
-                        distance = int(max(v) - min(v))
-                    except TypeError:
-                        # An entry in `v` has symbolic components, e.g. `x_m + 2`
-                        if len(set(v)) == 1:
-                            # All good
-                            distance = 0
-                        else:
-                            # Must drop `group`
-                            raise ValueError
-                    mds[d] = max(mds.get(d, 0), distance)
+            mapper.update({d: max(mapper[d], v) for d, v in group.diameter.items()})
         except ValueError:
             groups.remove(group)
+    candidatess = {d: make_rotations_table(d, v) for d, v in mapper.items()}
 
-    # All ways in which the MDs can be covered
+    # For each Group, find a rotation that is compatible with a given candidate
+    # Note: If not possible, drop the Group
     mapper = {}
-    for d, v in mds.items():
-        m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
-        m = (m - m.T)[::-1, :]
-        #TODO: shift ? EnrichedTuple?
-        mapper[d] = [list(i) for i in m]
-
-    # For each Group, determine all legal iteration Intervals
-    intervalss = defaultdict(lambda: defaultdict(list))
-    for group in groups:
-        # Example, `group` comprises two candidates
-        # x+1 ... x+2
-        # x+2 ... x+4
-        # => group.mlds[x] = 1
-        # assume also: group.mlis[x] = 2 (couldn't be smaller due to the x+4)
-        # Also: mds[x] = 3 => mapper[d] = [[-3, -2, -1, 0], [-2, -1, 0, 1], ...]
-        for d, candidates in mapper.items():
-            for candidate in candidates:
-                if group.mlds[d] + min(candidate) < 0:
-                    # Cont. example:
-                    # candidate = [-3, -2, -1, 0] => -2 < 0
-                    continue
-                if group.mlis[d] - max(candidate) < 0:
-                    # Cont. example
-                    # candidate = [0, 1, 2, 3] => -1 < 0
-                    continue
-                intervalss[group][d].append(candidate)
-    from IPython import embed; embed()
-
-    # For each Group, the required shifting along each Dimension to avoid OOB
-    # Note: if not enough buffer to shift, then the Group is dropped
-    shifts = []
-    for group in list(groups):
+    for d, candidates in candidatess.items():
         try:
-            mapper = defaultdict(int)
-            for i in group.Toffsets:
-                for d, v in i:
-                    n_extra_iters = mds[d] - group.mlis[d]
-                    if n_extra_iters <= 0:
-                        # All good
-                        pass
-                    elif n_extra_iters <= group.mlds[d]:
-                        # Need and can shift
-                        mapper[d] = max(mapper[d], n_extra_iters)
-                    else:
-                        # Need but cannot shift -- must drop `group`
-                        raise ValueError
-            shifts.append(mapper)
+            for candidate in list(candidates):
+                found = {}
+                for group in list(groups):
+                    assert set(candidatess) == set(group.rotations)
+
+                    for rotation, distance in group.rotations[d]:
+                        if rotation.union(candidate) != rotation:
+                            continue
+                        found[group] = distance
+                        break
+
+                if len(found) == len(groups):
+                    # `candidate` is OK !
+                    mapper[candidate] = found
+                    break
+                else:
+                    raise ValueError
         except ValueError:
-            groups.remove(group)
-    from IPython import embed; embed()
+            # TODO: should/could actually drop a group and try again
+            return Aliases()
 
-    # Filter off Dimensions not defining an iteration Interval
-    for d, v in list(mds.items()):
-        if isinstance(d, ShiftedDimension):
-            if mds.get(d.parent) == v:
-                mds.pop(d)
+    aliases = Aliases(dimensions, list(mapper))
+    for group in groups:
+        c = group.pivot
+        distances = defaultdict(int, [(i.dim, v[group]) for i, v in mapper.items()])
 
-    # Constuct iteration Intervals and, for each Group, the Basis Alias offsets
-    if any(shifts):
-        intervals = [Interval(d, 0, v) for d, v in mds.items()]
-        pick = lambda d, v, shift: (d, min(v) - shift[d])
-    else:
-        intervals = [Interval(d, -v//2, (v+1)//2) for d, v in mds.items()]
-        pick = lambda d, v, shift: (d, np.mean(v, dtype=int))
-    offsetss = []
-    for group, shift in zip(groups, shifts):
-        offsets = []
-        for i in group.Toffsets:
-            items = []
-            for d, v in i:
-                try:
-                    items.append(pick(d, v, shift))
-                except TypeError:
-                    # E.g., `v = (x_m - x + 5, x_m - x + 5, ...)`
-                    assert len(set(v)) == 1
-                    items.append((d, v[0] - shift[d]))
-            offsets.append(LabeledVector(items))
-        offsetss.append(offsets)
-
-    # Construct Basis Alias and distances from the Basis Alias
-    aliases = Aliases(tuple(mds), tuple(intervals))
-    for group, offsets in zip(groups, offsetss):
-        c = group[0]
-        subs = {i: i.function[[x + v.fromlabel(x, 0) for x in b]]
+        # Create the basis alias
+        offsets = [LabeledVector([(l, v[l] + distances[l]) for l in v.labels])
+                   for v in c.offsets]
+        subs = {i: i.function[[l + v.fromlabel(l, 0) for l in b]]
                 for i, b, v in zip(c.indexeds, c.bases, offsets)}
         alias = c.expr.xreplace(subs)
 
+        # All aliased expressions
         aliaseds = [i.expr for i in group]
 
+        # Distance of each aliased expression from the basis alias
+        a = distances
         distances = []
         for i in group:
-            assert len(offsets) == len(i.offsets)
             distance = [o.distance(v) for o, v in zip(i.offsets, offsets)]
             distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
             if any(len(v) != 1 for d, v in distance):
@@ -486,12 +418,13 @@ def analyze(expr):
     return Candidate(expr.rhs, indexeds, bases, offsets)
 
 
-def make_rotations_table(v):
+def make_rotations_table(d, v):
     # Build the table of all legal rotations
     m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
     m = (m - m.T)[::-1, :]
 
-    from IPython import embed; embed()
+    # Shift the table so that the middle rotation is at the top
+    m = np.roll(m, int(-np.floor(v/2)), axis=0)
 
     # Turn into a more compact representation as a list of Intervals
     m = [Interval(d, min(i), max(i)) for i in m]
@@ -539,11 +472,43 @@ class Group(tuple):
         return [LabeledVector.transpose(*i) for i in zip(*[i.offsets for i in self])]
 
     @cached_property
+    def diameter(self):
+        """
+        The size of the iteration space required to evaluate all aliasing expressions
+        in this Group, along each Dimension.
+        """
+        c = self.pivot
+
+        ret = defaultdict(int)
+        for i in self.Toffsets:
+            for d, v in i:
+                try:
+                    distance = int(max(v) - min(v))
+                except TypeError:
+                    # An entry in `v` has symbolic components, e.g. `x_m + 2`
+                    if len(set(v)) == 1:
+                        # All good
+                        distance = 0
+                    else:
+                        # Illegal Group
+                        raise ValueError
+                ret[d] = max(ret[d], distance)
+
+        # Drop ShiftedDimensions
+        for d, v in list(ret.items()):
+            if isinstance(d, ShiftedDimension):
+                if v != ret.get(d.parent, v):
+                    raise ValueError
+                ret.pop(d)
+
+        return ret
+
+    @cached_property
     def rotations(self):
         return self._pivot_rotations
 
     @cached_property
-    def _pivot(self):
+    def pivot(self):
         """
         A deterministic Candidate for this Group.
         """
@@ -555,7 +520,7 @@ class Group(tuple):
         """
         All legal rotations along each Dimension for the Group pivot.
         """
-        c = self._pivot
+        c = self.pivot
         shifts = self._pivot_legal_shifts
 
         ret = {}
@@ -563,19 +528,16 @@ class Group(tuple):
             v = mini - maxd
 
             # Build the table of all legal rotations
-            m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
-            m = (m - m.T)[::-1, :]
+            m = make_rotations_table(d, v)
 
-            # The index of the pivot in the table
-            index = np.where(m[0] == maxd)[0]
-            assert len(index) == 1
-            assert index == np.where(m[-1] == mini)[0]
-            index = index[0]
+            # Relative distance of the pivot from each rotation
+            distances = []
+            for i in m:
+                distance = maxd - i.lower
+                assert distance == mini - i.upper
+                distances.append(distance)
 
-            # Turn into a more compact representation as a list of Intervals
-            m = [Interval(d, min(i), max(i)) for i in m]
-
-            ret[d] = (m, index)
+            ret[d] = tuple(zip(m, distances))
 
         return ret
 
@@ -585,7 +547,7 @@ class Group(tuple):
         The max decrement and min increment along each Dimension such that the
         Group pivot does not go OOB.
         """
-        c = self._pivot
+        c = self.pivot
 
         ret = defaultdict(lambda: (-np.inf, np.inf))
         for i, ofs in zip(c.indexeds, c.offsets):
@@ -597,6 +559,8 @@ class Group(tuple):
 
                     maxd = max(ret[l][0], -ofs[l])
                     mini = min(ret[l][1], sum(f._size_halo[d]) - ofs[l])
+
+                    #TODO: take ispace into account???
 
                     ret[l] = (maxd, mini)
                 except TypeError:

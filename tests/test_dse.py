@@ -596,6 +596,7 @@ class TestAliases(object):
                   (u[t, x, y-3, z+1] + u[t, x+1, y-3, z+1])*3*f))
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
+        from IPython import embed; embed()
 
         x0_blk_size = op1.parameters[3]
         y0_blk_size = op1.parameters[4]
