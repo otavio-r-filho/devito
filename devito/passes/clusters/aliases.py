@@ -9,7 +9,7 @@ from devito.ir import (ROUNDABLE, DataSpace, IterationInstance, Interval,
 from devito.passes.clusters.utils import cluster_pass, make_is_time_invariant
 from devito.symbolics import (compare_ops, estimate_cost, q_leaf, q_sum_of_product,
                               q_terminalop, retrieve_indexed, yreplace)
-from devito.tools import DefaultOrderedDict
+from devito.tools import EnrichedTuple
 from devito.types import Array, Eq, IncrDimension, Scalar
 
 __all__ = ['cire']
@@ -199,7 +199,7 @@ def collect(exprs):
             for i in group.Toffsets:
                 for d, v in i:
                     try:
-                        distance = max(v) - min(v)
+                        distance = int(max(v) - min(v))
                     except TypeError:
                         # An entry in `v` has symbolic components, e.g. `x_m + 2`
                         if len(set(v)) == 1:
@@ -211,6 +211,36 @@ def collect(exprs):
                     mds[d] = max(mds.get(d, 0), distance)
         except ValueError:
             groups.remove(group)
+
+    # All ways in which the MDs can be covered
+    mapper = {}
+    for d, v in mds.items():
+        m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
+        m = (m - m.T)[::-1, :]
+        #TODO: shift ? EnrichedTuple?
+        mapper[d] = [list(i) for i in m]
+
+    # For each Group, determine all legal iteration Intervals
+    intervalss = defaultdict(lambda: defaultdict(list))
+    for group in groups:
+        # Example, `group` comprises two candidates
+        # x+1 ... x+2
+        # x+2 ... x+4
+        # => group.mlds[x] = 1
+        # assume also: group.mlis[x] = 2 (couldn't be smaller due to the x+4)
+        # Also: mds[x] = 3 => mapper[d] = [[-3, -2, -1, 0], [-2, -1, 0, 1], ...]
+        for d, candidates in mapper.items():
+            for candidate in candidates:
+                if group.mlds[d] + min(candidate) < 0:
+                    # Cont. example:
+                    # candidate = [-3, -2, -1, 0] => -2 < 0
+                    continue
+                if group.mlis[d] - max(candidate) < 0:
+                    # Cont. example
+                    # candidate = [0, 1, 2, 3] => -1 < 0
+                    continue
+                intervalss[group][d].append(candidate)
+    from IPython import embed; embed()
 
     # For each Group, the required shifting along each Dimension to avoid OOB
     # Note: if not enough buffer to shift, then the Group is dropped
