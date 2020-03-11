@@ -186,9 +186,16 @@ def collect(exprs):
     # For simplicity, focus on one set of Dimensions at a time
     # Also there basically never is more than one in typical use cases
     try:
-        _, groups = mapper.popitem()
+        dimensions, groups = mapper.popitem()
     except KeyError:
         return Aliases()
+
+
+    rotationss = [group.rotations for group in groups]
+    assert all(set(rotations) == dimensions for rotations in rotationss)
+
+    
+    from IPython import embed; embed()
 
     # MDs - Maximum Distance between two points across any two aliasing expressions. 
     # Note: if a Group makes it impossible to calculate the MDs (e.g., due
@@ -479,6 +486,19 @@ def analyze(expr):
     return Candidate(expr.rhs, indexeds, bases, offsets)
 
 
+def make_rotations_table(v):
+    # Build the table of all legal rotations
+    m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
+    m = (m - m.T)[::-1, :]
+
+    from IPython import embed; embed()
+
+    # Turn into a more compact representation as a list of Intervals
+    m = [Interval(d, min(i), max(i)) for i in m]
+
+    return m
+
+
 class ShiftedDimension(IncrDimension):
 
     def __new__(cls, d, name):
@@ -519,44 +539,70 @@ class Group(tuple):
         return [LabeledVector.transpose(*i) for i in zip(*[i.offsets for i in self])]
 
     @cached_property
-    def mlis(self):
+    def rotations(self):
+        return self._pivot_rotations
+
+    @cached_property
+    def _pivot(self):
         """
-        MLIs - Maximum definitely-Legal Increment along each Dimensions.
+        A deterministic Candidate for this Group.
         """
+        assert len(self) > 0
+        return self[0]
+
+    @cached_property
+    def _pivot_rotations(self):
+        """
+        All legal rotations along each Dimension for the Group pivot.
+        """
+        c = self._pivot
+        shifts = self._pivot_legal_shifts
+
         ret = {}
-        for c in self:
-            mapper = {}
-            for i, ofs in zip(c.indexeds, c.offsets):
-                f = i.function
-                for d in ofs.labels:
-                    try:
-                        # Assume `ofs[d]` is a number (typical case)
-                        k = (set(d._defines) & set(f.dimensions)).pop()
-                        v = sum(f._size_halo[k]) - ofs[d]
-                        mapper[d] = min(mapper.get(d, np.inf), v)
-                    except TypeError:
-                        # E.g., `ofs[d] = x_m - x + 5`
-                        mapper[d] = 0
-            for d, v in mapper.items():
-                ret[d] = max(ret.get(d, 0), v)
+        for d, (maxd, mini) in shifts.items():
+            v = mini - maxd
+
+            # Build the table of all legal rotations
+            m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
+            m = (m - m.T)[::-1, :]
+
+            # The index of the pivot in the table
+            index = np.where(m[0] == maxd)[0]
+            assert len(index) == 1
+            assert index == np.where(m[-1] == mini)[0]
+            index = index[0]
+
+            # Turn into a more compact representation as a list of Intervals
+            m = [Interval(d, min(i), max(i)) for i in m]
+
+            ret[d] = (m, index)
+
         return ret
 
     @cached_property
-    def mlds(self):
+    def _pivot_legal_shifts(self):
         """
-        MLDs - Maximum definitely-Legal Decrement along each Dimensions.
+        The max decrement and min increment along each Dimension such that the
+        Group pivot does not go OOB.
         """
-        ret = {}
-        for c in self:
-            for i, ofs in zip(c.indexeds, c.offsets):
-                f = i.function
-                for d in ofs.labels:
-                    try:
-                        # Assume `ofs[d]` is a number (typical case)
-                        ret[d] = min(ret.get(d, np.inf), ofs[d])
-                    except TypeError:
-                        # E.g., `ofs[d] = x_m - x + 5`
-                        ret[d] = 0
+        c = self._pivot
+
+        ret = defaultdict(lambda: (-np.inf, np.inf))
+        for i, ofs in zip(c.indexeds, c.offsets):
+            f = i.function
+            for l in ofs.labels:
+                try:
+                    # Assume `ofs[d]` is a number (typical case)
+                    d = (set(l._defines) & set(f.dimensions)).pop()
+
+                    maxd = max(ret[l][0], -ofs[l])
+                    mini = min(ret[l][1], sum(f._size_halo[d]) - ofs[l])
+
+                    ret[l] = (maxd, mini)
+                except TypeError:
+                    # E.g., `ofs[d] = x_m - x + 5`
+                    ret[l] = (0, 0)
+
         return ret
 
 
