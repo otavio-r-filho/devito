@@ -384,7 +384,7 @@ void bf0(const float h_x, const float h_y, const float h_z, struct dataobj *rest
   }
   //#pragma omp parallel num_threads(nthreads)
   {
-  //#pragma omp for collapse(1) schedule(dynamic, 1)
+   #pragma omp for collapse(1) schedule(dynamic, 1)
     for (int x0_blk0 = x0_blk0_m; x0_blk0 <= x0_blk0_M; x0_blk0 += x0_blk0_size)
     {
       for (int y0_blk0 = y0_blk0_m; y0_blk0 <= y0_blk0_M; y0_blk0 += y0_blk0_size)
@@ -401,7 +401,7 @@ void bf0(const float h_x, const float h_y, const float h_z, struct dataobj *rest
               float r0 = 1.0 / (h_x * h_x);
               u[t1][x + 8][y + 8][z + 8] = r0 * (-1.78571429e-3F * (u[t0][x + 4][y + 8][z + 8] + u[t0][x + 12][y + 8][z + 8]) + 2.53968254e-2F * (u[t0][x + 5][y + 8][z + 8] + u[t0][x + 11][y + 8][z + 8]) - 2.0e-1F * (u[t0][x + 6][y + 8][z + 8] + u[t0][x + 10][y + 8][z + 8]) + 1.6F * (u[t0][x + 7][y + 8][z + 8] + u[t0][x + 9][y + 8][z + 8]) - 2.84722222F * u[t0][x + 8][y + 8][z + 8]) + r1 * (-1.78571429e-3F * (u[t0][x + 8][y + 4][z + 8] + u[t0][x + 8][y + 12][z + 8]) + 2.53968254e-2F * (u[t0][x + 8][y + 5][z + 8] + u[t0][x + 8][y + 11][z + 8]) - 2.0e-1F * (u[t0][x + 8][y + 6][z + 8] + u[t0][x + 8][y + 10][z + 8]) + 1.6F * (u[t0][x + 8][y + 7][z + 8] + u[t0][x + 8][y + 9][z + 8]) - 2.84722222F * u[t0][x + 8][y + 8][z + 8]) + r2 * (-1.78571429e-3F * (u[t0][x + 8][y + 8][z + 4] + u[t0][x + 8][y + 8][z + 12]) + 2.53968254e-2F * (u[t0][x + 8][y + 8][z + 5] + u[t0][x + 8][y + 8][z + 11]) - 2.0e-1F * (u[t0][x + 8][y + 8][z + 6] + u[t0][x + 8][y + 8][z + 10]) + 1.6F * (u[t0][x + 8][y + 8][z + 7] + u[t0][x + 8][y + 8][z + 9]) - 2.84722222F * u[t0][x + 8][y + 8][z + 8]);
             }
-            //#pragma omp simd aligned(u : 32)
+            #pragma omp simd aligned(u : 32)
             for (int spzi = 0; spzi < sparse_source_mask_NNZ[x][y]; spzi++) // Inner block loop
             {
               int zind = sparse_source_mask[x][y][spzi];
