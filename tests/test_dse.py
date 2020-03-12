@@ -645,20 +645,22 @@ class TestAliases(object):
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
 
-        x0_blk_size = op1.parameters[4]
-        y0_blk_size = op1.parameters[9]
-        z_size = op1.parameters[5]
+        x0_blk_size = op1.parameters[8]
+        y0_blk_size = op1.parameters[3]
+        z_size = op1.parameters[4]
+
+        #TODO: try the same with y_m+2
+        #TODO: try with x_m+2 in one expr, and x+2 in the other expr
 
         # Check Array shape
         arrays = [i for i in FindSymbols().visit(op1._func_table['bf0'].root)
                   if i.is_Array]
         assert len(arrays) == 1
         a = arrays[0]
-        assert len(a.dimensions) == 3
-        assert a.halo == ((0, 0), (1, 1), (1, 1))
-        assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
-        assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
-        assert Add(*a.symbolic_shape[2].args) == z_size + 2
+        assert len(a.dimensions) == 2
+        assert a.halo == ((1, 1), (1, 1))
+        assert Add(*a.symbolic_shape[0].args) == y0_blk_size + 2
+        assert Add(*a.symbolic_shape[1].args) == z_size + 2
 
         # Check numerical output
         op0(time_M=1)

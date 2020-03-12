@@ -7,8 +7,8 @@ import numpy as np
 from devito.ir import (ROUNDABLE, DataSpace, IterationInstance, Interval,
                        IntervalGroup, LabeledVector, detect_accesses, build_intervals)
 from devito.passes.clusters.utils import cluster_pass, make_is_time_invariant
-from devito.symbolics import (compare_ops, estimate_cost, q_leaf, q_sum_of_product,
-                              q_terminalop, retrieve_indexed, yreplace)
+from devito.symbolics import (compare_ops, estimate_cost, q_constant, q_leaf,
+                              q_sum_of_product, q_terminalop, retrieve_indexed, yreplace)
 from devito.tools import EnrichedTuple
 from devito.types import Array, Eq, IncrDimension, Scalar
 
@@ -392,8 +392,8 @@ def analyze(expr):
 
     bases = []
     offsets = []
-    for i in indexeds:
-        ii = IterationInstance(i)
+    for indexed in indexeds:
+        ii = IterationInstance(indexed)
 
         # There must not be irregular accesses, otherwise we won't be able to
         # calculate the offsets
@@ -407,6 +407,12 @@ def analyze(expr):
         for e, ai in zip(ii, ii.aindices):
             if e.is_Number:
                 base.append(e)
+            elif q_constant(e):
+                for i in reversed(expr.ispace.intervals):
+                    if i.dim.root is ai:
+                        base.append(i.dim)
+                        offset.append((i.dim, e - i.dim))
+                        break
             else:
                 base.append(ai)
                 offset.append((ai, e - ai))
