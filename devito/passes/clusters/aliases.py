@@ -598,8 +598,7 @@ class Group(tuple):
             f = i.function
             for l in ofs.labels:
                 # `f`'s cumulative halo size along `l`
-                d = (set(l._defines) & set(f.dimensions)).pop()  # E.g., xi->x
-                hsize = sum(f._size_halo[d])
+                hsize = sum(f._size_halo[l])
 
                 # Any `ofs`'s shift due to non-[0,0] iteration space
                 shift = c.shifts[l]
