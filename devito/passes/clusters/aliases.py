@@ -419,7 +419,7 @@ def analyze(expr):
         bases.append(tuple(base))
         offsets.append(LabeledVector(offset))
 
-    return Candidate(expr.rhs, indexeds, bases, offsets)
+    return Candidate(expr.rhs, indexeds, bases, offsets, expr.ispace.intervals)
 
 
 def make_rotations_table(d, v):
@@ -446,11 +446,12 @@ class ShiftedDimension(IncrDimension):
 
 class Candidate(object):
 
-    def __init__(self, expr, indexeds, bases, offsets):
+    def __init__(self, expr, indexeds, bases, offsets, shifts):
         self.expr = expr
         self.indexeds = indexeds
         self.bases = bases
         self.offsets = offsets
+        self.shifts = shifts
 
     def __repr__(self):
         return "Candidate(expr=%s)" % self.expr
@@ -596,14 +597,20 @@ class Group(tuple):
         for i, ofs in zip(c.indexeds, c.offsets):
             f = i.function
             for l in ofs.labels:
+                # `f`'s cumulative halo size along `l`
+                d = (set(l._defines) & set(f.dimensions)).pop()  # E.g., xi->x
+                hsize = sum(f._size_halo[d])
+
+                # Any `ofs`'s shift due to non-[0,0] iteration space
+                shift = c.shifts[l]
+                if shift.is_Null:
+                    #TODO
+                    shift = c.shifts[l.parent]
+
                 try:
                     # Assume `ofs[d]` is a number (typical case)
-                    d = (set(l._defines) & set(f.dimensions)).pop()
-
-                    maxd = min(0, max(ret[l][0], -ofs[l]))
-                    mini = max(0, min(ret[l][1], sum(f._size_halo[d]) - ofs[l]))
-
-                    #TODO: take ispace into account???
+                    maxd = min(0, max(ret[l][0], -ofs[l] - shift.lower))
+                    mini = max(0, min(ret[l][1], hsize - ofs[l] - shift.upper))
 
                     ret[l] = (maxd, mini)
                 except TypeError:
