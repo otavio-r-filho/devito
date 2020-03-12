@@ -190,41 +190,40 @@ def collect(exprs):
     except KeyError:
         return Aliases()
 
-    # Build a rotations table for the maximum diameter
-    # Note: Groups that cannot compute their diameter are dropped
+    # For each Dimension, build all minimum Intervals that are as large as
+    # the maximum diameter out of all Groups
+    # Example: if the maximum diameter is 2, build [-2, 0], [-1, 1], [0, 2]
+    # Note: Groups that cannot evaluate their diameter are dropped
     mapper = defaultdict(int)
     for group in list(groups):
         try:
             mapper.update({d: max(mapper[d], v) for d, v in group.diameter.items()})
         except ValueError:
             groups.remove(group)
-    candidatess = {d: make_rotations_table(d, v) for d, v in mapper.items()}
+    intervalss = {d: make_rotations_table(d, v) for d, v in mapper.items()}
 
-    # For each Group, find a rotation that is compatible with a given candidate
+    # For each Group, find a rotation that is compatible with one of the
+    # intervals computed above
     # Note: If not possible, drop the Group
     mapper = {}
-    for d, candidates in candidatess.items():
-        try:
-            for candidate in list(candidates):
-                found = {}
-                for group in list(groups):
-                    assert set(candidatess) == set(group.rotations)
-
-                    for rotation, distance in group.rotations[d]:
-                        if rotation.union(candidate) != rotation:
-                            continue
-                        found[group] = distance
-                        break
-
-                if len(found) == len(groups):
-                    # `candidate` is OK !
-                    mapper[candidate] = found
-                    break
+    for d, intervals in intervalss.items():
+        for interval in list(intervals):
+            found = {}
+            for group in list(groups):
+                distance = group.find_legal_rotation_distance(d, interval)
+                if distance is not None:
+                    found[group] = distance
                 else:
-                    raise ValueError
-        except ValueError:
-            # TODO: should/could actually drop a group and try again
-            return Aliases()
+                    break
+
+            if len(found) == len(groups):
+                # `interval` is OK !
+                mapper[interval] = found
+                break
+
+    if len(mapper) != len(intervalss):
+        # TODO: should/could actually drop a group and try again
+        return Aliases()
 
     aliases = Aliases(dimensions, list(mapper))
     for group in groups:
@@ -242,7 +241,6 @@ def collect(exprs):
         aliaseds = [i.expr for i in group]
 
         # Distance of each aliased expression from the basis alias
-        a = distances
         distances = []
         for i in group:
             distance = [o.distance(v) for o, v in zip(i.offsets, offsets)]
@@ -419,7 +417,9 @@ def analyze(expr):
 
 
 def make_rotations_table(d, v):
-    # Build the table of all legal rotations
+    """
+    All possible rotations of `range(v+1)`.
+    """
     m = np.array([[j-i if j>i else 0 for j in range(v+1)] for i in range(v+1)])
     m = (m - m.T)[::-1, :]
 
@@ -467,6 +467,27 @@ class Group(tuple):
     def __repr__(self):
         return "Group(%s)" % ", ".join([str(i) for i in self])
 
+    def find_legal_rotation_distance(self, d, interval):
+        """
+        The distance from the Group pivot of a rotation along Dimension ``d`` that
+        can safely iterate over the ``interval``.
+        """
+        assert d is interval.dim
+
+        for rotation, distance in self._pivot_legal_rotations[d]:
+            # Does `rotation` cover the `interval` ?
+            if rotation.union(interval) != rotation:
+                continue
+
+            # Infer the `rotation`'s min_intervals from the pivot's
+            min_interval = self._pivot_min_intervals[d].translate(-distance)
+
+            # Does the `interval` actually cover the `rotation`'s `min_interval`?
+            if interval.union(min_interval) == interval:
+                return distance
+
+        return None
+
     @cached_property
     def Toffsets(self):
         return [LabeledVector.transpose(*i) for i in zip(*[i.offsets for i in self])]
@@ -477,8 +498,6 @@ class Group(tuple):
         The size of the iteration space required to evaluate all aliasing expressions
         in this Group, along each Dimension.
         """
-        c = self.pivot
-
         ret = defaultdict(int)
         for i in self.Toffsets:
             for d, v in i:
@@ -504,10 +523,6 @@ class Group(tuple):
         return ret
 
     @cached_property
-    def rotations(self):
-        return self._pivot_rotations
-
-    @cached_property
     def pivot(self):
         """
         A deterministic Candidate for this Group.
@@ -516,28 +531,50 @@ class Group(tuple):
         return self[0]
 
     @cached_property
-    def _pivot_rotations(self):
+    def _pivot_legal_rotations(self):
         """
         All legal rotations along each Dimension for the Group pivot.
         """
         c = self.pivot
-        shifts = self._pivot_legal_shifts
 
         ret = {}
-        for d, (maxd, mini) in shifts.items():
+        for d, (maxd, mini) in self._pivot_legal_shifts.items():
+            # Rotation size = mini (min-increment) - maxd (max-decrement)
             v = mini - maxd
 
-            # Build the table of all legal rotations
+            # Build the table of all possible rotations
             m = make_rotations_table(d, v)
 
-            # Relative distance of the pivot from each rotation
             distances = []
-            for i in m:
-                distance = maxd - i.lower
-                assert distance == mini - i.upper
+            for rotation in m:
+                # Distance of the rotation `i` from `c`
+                distance = maxd - rotation.lower
+                assert distance == mini - rotation.upper
                 distances.append(distance)
 
-            ret[d] = tuple(zip(m, distances))
+            ret[d] = list(zip(m, distances))
+
+        return ret
+
+    @cached_property
+    def _pivot_min_intervals(self):
+        """
+        The minimum Interval along each Dimension such that by evaluating the
+        pivot, all Candidates are evaluated too.
+        """
+        c = self.pivot
+
+        ret = defaultdict(lambda: [np.inf, -np.inf])
+        for i in self:
+            distance = [o.distance(v) for o, v in zip(i.offsets, c.offsets)]
+            distance = [(d, set(v)) for d, v in LabeledVector.transpose(*distance)]
+
+            for d, v in distance:
+                value = v.pop()
+                ret[d][0] = min(ret[d][0], value)
+                ret[d][1] = max(ret[d][1], value)
+
+        ret = {d: Interval(d, m, M) for d, (m, M) in ret.items()}
 
         return ret
 
@@ -557,8 +594,8 @@ class Group(tuple):
                     # Assume `ofs[d]` is a number (typical case)
                     d = (set(l._defines) & set(f.dimensions)).pop()
 
-                    maxd = max(ret[l][0], -ofs[l])
-                    mini = min(ret[l][1], sum(f._size_halo[d]) - ofs[l])
+                    maxd = min(0, max(ret[l][0], -ofs[l]))
+                    mini = max(0, min(ret[l][1], sum(f._size_halo[d]) - ofs[l]))
 
                     #TODO: take ispace into account???
 

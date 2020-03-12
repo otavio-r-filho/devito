@@ -557,8 +557,8 @@ class TestAliases(object):
         assert len(arrays) == 2
         for a in arrays:
             assert len(a.dimensions) == 3
-            assert a.halo == ((1, 1), (1, 1), (0, 0))
-            assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 2
+            assert a.halo == ((1, 0), (1, 1), (0, 0))
+            assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
             assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
             assert a.symbolic_shape[2] is z_size
 
@@ -588,7 +588,7 @@ class TestAliases(object):
         f.data_with_halo[:] = 1.
         u.data_with_halo[:] = 1.5
 
-        # Leads to 2D aliases
+        # Leads to 3D aliases
         eqn = Eq(u.forward,
                  ((c[0, z]*u[t, x+1, y, z] + c[1, z+1]*u[t, x+1, y, z+1])*f +
                   (c[0, z]*u[t, x+2, y+2, z] + c[1, z+1]*u[t, x+2, y+2, z+1])*f +
@@ -596,7 +596,6 @@ class TestAliases(object):
                   (u[t, x, y-3, z+1] + u[t, x+1, y-3, z+1])*3*f))
         op0 = Operator(eqn, opt=('noop', {'openmp': True}))
         op1 = Operator(eqn, opt=('advanced', {'openmp': True}))
-        from IPython import embed; embed()
 
         x0_blk_size = op1.parameters[3]
         y0_blk_size = op1.parameters[4]
@@ -610,7 +609,7 @@ class TestAliases(object):
         assert len(arrays) == 2
         for a in arrays:
             assert len(a.dimensions) == 3
-            assert a.halo == ((0, 1), (0, 2), (0, 0))
+            assert a.halo == ((1, 0), (1, 1), (0, 0))
             assert Add(*a.symbolic_shape[0].args) == x0_blk_size + 1
             assert Add(*a.symbolic_shape[1].args) == y0_blk_size + 2
             assert a.symbolic_shape[2] is z_size
