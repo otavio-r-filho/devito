@@ -5,7 +5,9 @@
 #include "xmmintrin.h"
 #include "pmmintrin.h"
 #include "omp.h"
+
 #define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
 
 int *malloc3d_and_init_int_cont(int dim1, int dim2, int dim3, int value)
 {
