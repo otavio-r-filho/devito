@@ -360,19 +360,19 @@ class SubDomain(object):
                     side, thickness_left, thickness_right = v
                     if side != 'middle':
                         raise ValueError("Expected side 'middle', not `%s`" % side)
-                    sub_dimensions.append(SubDimension.middle('%si%d' %
-                                                              (k.name, counter),
+                    sub_dimensions.append(SubDimension.middle('i%d%s' %
+                                                              (counter, k.name),
                                                               k, thickness_left,
                                                               thickness_right))
                 except ValueError:
                     side, thickness = v
                     if side == 'left':
-                        sub_dimensions.append(SubDimension.left('%si%d' %
-                                                                (k.name, counter),
+                        sub_dimensions.append(SubDimension.left('i%d%s' %
+                                                                (counter, k.name),
                                                                 k, thickness))
                     elif side == 'right':
-                        sub_dimensions.append(SubDimension.right('%si%d' %
-                                                                 (k.name, counter),
+                        sub_dimensions.append(SubDimension.right('i%d%s' %
+                                                                 (counter, k.name),
                                                                  k, thickness))
                     else:
                         raise ValueError("Expected sides 'left|right', not `%s`" % side)
