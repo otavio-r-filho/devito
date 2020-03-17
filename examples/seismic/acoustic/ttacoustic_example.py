@@ -2,10 +2,9 @@ import numpy as np
 from argparse import ArgumentParser
 
 from devito.logger import info
-from devito import Constant, Function, smooth, configuration
+from devito import Constant, Function, smooth, configuration, norm
 from examples.seismic.acoustic import AcousticWaveSolver
 from examples.seismic import demo_model, setup_geometry
-
 
 def acoustic_setup(shape=(50, 50, 50), spacing=(15.0, 15.0, 15.0),
                    tn=500., kernel='OT2', space_order=4, nbl=10,
@@ -38,6 +37,8 @@ def run(shape=(50, 50, 50), spacing=(20.0, 20.0, 20.0), tn=100.0,
     save = full_run and not checkpointing
     # Define receiver geometry (spread across x, just below surface)
     rec, u, summary = solver.forward(save=save, autotune=autotune)
+    
+    print(norm(u))
 
     if preset == 'constant':
         # With  a new m as Constant
@@ -100,3 +101,4 @@ if __name__ == "__main__":
         space_order=args.space_order, preset=preset, kernel=args.kernel,
         autotune=args.autotune, dse=args.dse, dle=args.dle, full_run=args.full,
         checkpointing=args.checkpointing)
+    
