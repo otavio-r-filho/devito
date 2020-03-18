@@ -93,11 +93,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 3D preset parameters
-    shape = tuple(args.ndim * [8])
+    shape = tuple(args.ndim * [32])
     spacing = tuple(args.ndim * [15.0])
-    tn = 10. if args.ndim < 3 else 250.
+    tn = 40. if args.ndim < 3 else 250.
     preset = 'constant-isotropic' if args.constant else 'layers-isotropic'
-    run(shape=shape, spacing=spacing, nbl=args.nbl, tn=7,
+    run(shape=shape, spacing=spacing, nbl=args.nbl, tn=32,
         space_order=args.space_order, preset=preset, kernel=args.kernel,
         autotune=args.autotune, dse=args.dse, dle=args.dle, full_run=args.full,
         checkpointing=args.checkpointing)

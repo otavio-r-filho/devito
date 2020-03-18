@@ -8,12 +8,11 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+/* Start of auxiliary 'mallocing' functions */
 int *malloc3d_and_init_int_cont(int dim1, int dim2, int dim3, int value)
 {
-
-  //Save data for 3d array in a contiguous way.
+  /* Save data for 3d array in a contiguous way and initialize values. */
   int *p = (int *)malloc(dim1 * dim2 * dim3 * sizeof(int));
-
   for (int t = 0; t < dim1; t++)
   {
     for (int i = 0; i < dim2; i++)
@@ -28,10 +27,9 @@ int *malloc3d_and_init_int_cont(int dim1, int dim2, int dim3, int value)
   return p;
 }
 
-// Function to allocate memory for u[t][x][y]
 int ***malloc_3d_int(int dim1, int dim2, int dim3)
 {
-  //printf("\nAllocating 3d...");
+  /* Save data for 3d array in a contiguous way. */
   int ***matrix3d;
 
   matrix3d = (int ***)malloc(dim1 * sizeof(int **));
@@ -43,15 +41,12 @@ int ***malloc_3d_int(int dim1, int dim2, int dim3)
       matrix3d[idim1][idim2] = (int *)malloc(dim3 * sizeof(int));
     }
   }
-  //printf("...DONE\n");
   return matrix3d;
 }
 
-// Function to allocate memory for u[t][x][y]
 void initialize3_int(int timestamps, int nrows, int ncols, int ***A_init, int value)
 {
-  // Initialize the matrix
-  //printf("\nInit 3d...");
+  /* Initialize integer 3d array. */
   for (int ti = 0; ti < timestamps; ti++)
   {
     for (int xi = 0; xi < nrows; xi++)
@@ -62,30 +57,27 @@ void initialize3_int(int timestamps, int nrows, int ncols, int ***A_init, int va
       }
     }
   }
-  //printf("...DONE\n");
 }
 
 // Function to allocate memory for u[t][x][y]
 void initialize2(int nrows, int ncols, float **A_init, float value)
 {
-  // Initialize the matrix
-  //printf("\nInit 3d...");
+  /* Initialize float 2d array. */  //printf("\nInit 3d...");
   int xi = 0;
   int yi = 0;
 
-  for (xi = 0; xi < nrows; xi += 1)
+  for (int xi = 0; xi < nrows; xi += 1)
   {
-    for (yi = 0; yi < ncols; yi += 1)
+    for (int yi = 0; yi < ncols; yi += 1)
     {
       A_init[xi][yi] = value; //2 * xi - 1.4 * yi + 0.5 * fabs(xi - yi);
     }
   }
-  //printf("...DONE\n");
 }
 
 int **malloc_2d_int(int dim1, int dim2)
 {
-  //  printf("\nAllocating 3d...");
+  /* Save data for integer 2d array in a contiguous way. */
   int **matrix2d;
 
   matrix2d = (int **)malloc(dim1 * sizeof(int *));
@@ -94,13 +86,12 @@ int **malloc_2d_int(int dim1, int dim2)
   {
     matrix2d[idim1] = (int *)malloc(dim2 * sizeof(int));
   }
-  //printf("...DONE\n");
   return matrix2d;
 }
 
 float **malloc_2d_float(int dim1, int dim2)
 {
-  //  printf("\nAllocating 3d...");
+  /* Save data for float 2d array in a contiguous way. */
   float **matrix2d;
 
   matrix2d = (float **)malloc(dim1 * sizeof(float *));
@@ -109,9 +100,10 @@ float **malloc_2d_float(int dim1, int dim2)
   {
     matrix2d[idim1] = (float *)malloc(dim2 * sizeof(float));
   }
-  //printf("...DONE\n");
   return matrix2d;
 }
+
+/* End of auxiliary 'mallocing' functions */
 
 struct dataobj
 {
@@ -135,7 +127,7 @@ void bf0(const float dt, struct dataobj *restrict u_vec, struct dataobj *restric
 
 int Forward(const float dt, const float o_x, const float o_y, const float o_z, struct dataobj *restrict rec_vec, struct dataobj *restrict rec_coords_vec, struct dataobj *restrict src_vec, struct dataobj *restrict src_coords_vec, struct dataobj *restrict u_vec, struct dataobj *restrict vp_vec, const int x_M, const int x_m, const int y_M, const int y_m, const int z_M, const int z_m, const int p_rec_M, const int p_rec_m, const int p_src_M, const int p_src_m, const int time_M, const int time_m, struct profiler *timers, int x0_blk0_size, int y0_blk0_size)
 {
-  printf("\n ---- Starting time-tiling kernel  ----\n");
+  printf("\n In C-land - Starting time-tiling kernel  ---- \n");
   float(*restrict rec)[rec_vec->size[1]] __attribute__((aligned(64))) = (float(*)[rec_vec->size[1]])rec_vec->data;
   float(*restrict rec_coords)[rec_coords_vec->size[1]] __attribute__((aligned(64))) = (float(*)[rec_coords_vec->size[1]])rec_coords_vec->data;
   float(*restrict src)[src_vec->size[1]] __attribute__((aligned(64))) = (float(*)[src_vec->size[1]])src_vec->data;
@@ -146,21 +138,19 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
   _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
 
-  /*Allocate for inspection data structures */
-
-  int id = 0;
-
-  int ***source_id; //Grid 1
+  /*Allocate for data structures for inspection part */
+  int id = 0; // Initialize id to 0
+  int ***source_id; // Source ID Grid
   source_id = malloc_3d_int(u_vec->size[1], u_vec->size[2], u_vec->size[3]);
   initialize3_int(u_vec->size[1], u_vec->size[2], u_vec->size[3], source_id, 0);
 
-  int ***source_mask; //Grid 1
+  int ***source_mask; // Source Mask Grid
   source_mask = malloc_3d_int(u_vec->size[1], u_vec->size[2], u_vec->size[3]);
   initialize3_int(u_vec->size[1], u_vec->size[2], u_vec->size[3], source_mask, 0);
 
+  /* Start of loop identifies the positions where we have source injection and builds source_id and source_mask */
   for (int time = time_m, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3); time <= time_M; time += 1, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3))
   {
-    /* Begin section1 */
     for (int p_src = p_src_m; p_src <= p_src_M; p_src += 1)
     {
       int ii_src_0 = (int)(floor(-6.66667e-2 * o_x + 6.66667e-2 * src_coords[p_src][0]));
@@ -176,8 +166,6 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       {
         if (source_mask[ii_src_0 + 4][ii_src_1 + 4][ii_src_2 + 4] == 0)
         {
-            //printf("\n In ");
-
           source_id[ii_src_0 + 4][ii_src_1 + 4][ii_src_2 + 4] = id++;
           source_mask[ii_src_0 + 4][ii_src_1 + 4][ii_src_2 + 4] = 1;
         }
@@ -185,7 +173,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1)
       {
         if (source_mask[ii_src_0 + 4][ii_src_1 + 4][ii_src_3 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_0 + 4][ii_src_1 + 4][ii_src_3 + 4] = id++;
           source_mask[ii_src_0 + 4][ii_src_1 + 4][ii_src_3 + 4] = 1;
         }
@@ -193,7 +181,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_0 >= x_m - 1 && ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1)
       {
         if (source_mask[ii_src_0 + 4][ii_src_4 + 4][ii_src_2 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_0 + 4][ii_src_4 + 4][ii_src_2 + 4] = id++;
           source_mask[ii_src_0 + 4][ii_src_4 + 4][ii_src_2 + 4] = 1;
         }
@@ -201,7 +189,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_0 >= x_m - 1 && ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_0 <= x_M + 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1)
       {
         if (source_mask[ii_src_0 + 4][ii_src_4 + 4][ii_src_3 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_0 + 4][ii_src_4 + 4][ii_src_3 + 4] = id++;
           source_mask[ii_src_0 + 4][ii_src_4 + 4][ii_src_3 + 4] = 1;
         }
@@ -209,7 +197,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_1 >= y_m - 1 && ii_src_2 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_2 <= z_M + 1 && ii_src_5 <= x_M + 1)
       {
         if (source_mask[ii_src_5 + 4][ii_src_1 + 4][ii_src_2 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_5 + 4][ii_src_1 + 4][ii_src_2 + 4] = id++;
           source_mask[ii_src_5 + 4][ii_src_1 + 4][ii_src_2 + 4] = 1;
         }
@@ -217,7 +205,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_5 >= x_m - 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1 && ii_src_5 <= x_M + 1)
       {
         if (source_mask[ii_src_5 + 4][ii_src_1 + 4][ii_src_3 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_5 + 4][ii_src_1 + 4][ii_src_3 + 4] = id++;
           source_mask[ii_src_5 + 4][ii_src_1 + 4][ii_src_3 + 4] = 1;
         }
@@ -225,7 +213,7 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_2 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_2 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
       {
         if (source_mask[ii_src_5 + 4][ii_src_4 + 4][ii_src_2 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_5 + 4][ii_src_4 + 4][ii_src_2 + 4] = id++;
           source_mask[ii_src_5 + 4][ii_src_4 + 4][ii_src_2 + 4] = 1;
         }
@@ -233,51 +221,25 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
       if (ii_src_3 >= z_m - 1 && ii_src_4 >= y_m - 1 && ii_src_5 >= x_m - 1 && ii_src_3 <= z_M + 1 && ii_src_4 <= y_M + 1 && ii_src_5 <= x_M + 1)
       {
         if (source_mask[ii_src_5 + 4][ii_src_4 + 4][ii_src_3 + 4] == 0)
-        {//printf("\n In ");
+        { 
           source_id[ii_src_5 + 4][ii_src_4 + 4][ii_src_3 + 4] = id++;
           source_mask[ii_src_5 + 4][ii_src_4 + 4][ii_src_3 + 4] = 1;
         }
       }
     }
-    /* End section1 */
   }
+  /* End of loop that identifies the positions where we have source injection and builds source_id and source_mask */
 
 
-  //printf("\n Test source_mask--------------------------");
-  for (int xi = 0; xi < u_vec->size[1]; xi++)
-  {
-    for (int yi = 0; yi < u_vec->size[2]; yi++)
-    {
-      for (int zi = 0; zi < u_vec->size[3]; zi++)
-      {
-        if (source_mask[xi][yi][zi] == 1)
-        {
-          //printf("\n src_mask is : %d, %d, %d, %d ", xi, yi, zi, source_mask[xi][yi][zi]);
-          //printf("\n src_id is : %d, %d, %d, %d ", xi, yi, zi, source_id[xi][yi][zi]);
-
-          //sparse_source_mask[xi][yi][spzi] = zi;
-          //sparse_source_id[xi][yi][spzi] = source_id[xi][yi][zi];
-          //sparse_source_mask_NNZ[xi][yi]++;
-
-          //printf("\n src_mask is : [%d, %d, %d] = %d ", xi, yi, zi, source_mask[xi][yi][zi]);
-          //printf("\n src_id is : [%d, %d, %d]", xi, yi, zi);
-
-          //spzi++;
-        }
-      }
-    }
-  }
-  printf("\n ---- Test source_mask--------------------------\n");
-
-
-  int ***sparse_source_id; //Grid 1
+  int ***sparse_source_id; // To save source ids in sparse structure
   sparse_source_id = malloc_3d_int(u_vec->size[1], u_vec->size[2], id);
   initialize3_int(u_vec->size[1], u_vec->size[2], id, sparse_source_id, 0);
 
-  int ***sparse_source_mask; //Grid 1
+  int ***sparse_source_mask; //// To save source mask in sparse structure
   sparse_source_mask = malloc_3d_int(u_vec->size[1], u_vec->size[2], id);
   initialize3_int(u_vec->size[1], u_vec->size[2], id, sparse_source_mask, 0);
 
+  // Initialize values
   int nnz = 0;
   int spzi = 0;
 
@@ -310,10 +272,12 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
     }
   }
 
-  // Sparse structs are already built here
+  // Sparse structs are now built
+  // TODO: free not needed data
 
+  /* Structure to save source injection */
   float **save_src;
-  save_src = malloc_2d_float(id, (time_M + 1) );
+  save_src = malloc_2d_float(id, (time_M + 1)); // Size of this structure is (unique_points_affected x total_timesteps)
   initialize2(id, (time_M + 1), save_src, 0.0F);
 
   for (int time = time_m, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3); time <= time_M; time += 1, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3))
@@ -336,7 +300,6 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
         //u[t1][ii_src_0 + 4][ii_src_1 + 4][ii_src_2 + 4] += r0;
         save_src[(source_id[ii_src_0 + 4][ii_src_1 + 4][ii_src_2 + 4])][time] += r0;
         //printf("\n src_addition is : [%d, %d, %d] = %f at time %d ", ii_src_0 + 4, ii_src_1 + 4, ii_src_2 + 4, r0, time);
-
       }
       if (ii_src_0 >= x_m - 1 && ii_src_1 >= y_m - 1 && ii_src_3 >= z_m - 1 && ii_src_0 <= x_M + 1 && ii_src_1 <= y_M + 1 && ii_src_3 <= z_M + 1)
       {
@@ -385,11 +348,11 @@ int Forward(const float dt, const float o_x, const float o_y, const float o_z, s
   }
 
   x0_blk0_size = 9;
-  y0_blk0_size = 9;
+  y0_blk0_size = 9; // to fix as 8/16 etc
   int sf = 4;
   int t_blk_size = 10204;
 
-  //for (int time = time_m, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3); time <= time_M; time += 1, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3))
+  // printf("Total timesteps are %d \n", time_M - time_m +1 );
   for (int t_blk = time_m; t_blk <= sf * (time_M - time_m); t_blk += t_blk_size) // for each t block
   {
     struct timeval start_section0, end_section0;
@@ -438,14 +401,12 @@ void bf0(const float dt, struct dataobj *restrict u_vec, struct dataobj *restric
     {
       for (int time = t_blk, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3); time <= 1 + min(t_blk + t_blk_size, sf * (time_M - time_m)); time += sf, t0 = (time) % (3), t1 = (time + 1) % (3), t2 = (time + 2) % (3))
       {
-        int tw = (( time / sf)%(time_M - time_m + 1));
+        int tw = ((time / sf) % (time_M - time_m + 1));
 
-        //printf("Timesteps = %d \n", time_M - time_m +1 );
-        //printf("time is: %d \n", time);
-        //printf("tw sources is: %d \n", tw);
+        //printf("var time is: %d \n", time);
+        //printf("[Sources] var tw is: %d \n", tw);
         //printf("New T time= %d : %d \n", t_blk, min(t_blk + t_blk_size, sf * (time_M - time_m)));
         for (int x = max((x_m + time), x0_blk0); x <= min((x_M + time), (x0_blk0 + x0_blk0_size - 1)); x++)
-        //for (int xi = max((x_m + titer2), xouter); xi < min((x_M + titer2), (xouter + x_blk_size)); xi++)
         {
           for (int y = max((y_m + time), y0_blk0); y <= min((y_M + time), (y0_blk0 + y0_blk0_size - 1)); y++)
           {
@@ -455,29 +416,22 @@ void bf0(const float dt, struct dataobj *restrict u_vec, struct dataobj *restric
             {
               u[t1][x - time + 4][y - time + 4][z + 4] = (vp[x - time + 4][y - time + 4][z + 4] * vp[x - time + 4][y - time + 4][z + 4]) * ((dt * dt) * (-3.70370379e-4F * (u[t0][x - time + 2][y - time + 4][z + 4] + u[t0][x - time + 4][y - time + 2][z + 4] + u[t0][x - time + 4][y - time + 4][z + 2] + u[t0][x - time + 4][y - time + 4][z + 6] + u[t0][x - time + 4][y - time + 6][z + 4] + u[t0][x - time + 6][y - time + 4][z + 4]) + 5.92592607e-3F * (u[t0][x - time + 3][y - time + 4][z + 4] + u[t0][x - time + 4][y - time + 3][z + 4] + u[t0][x - time + 4][y - time + 4][z + 3] + u[t0][x - time + 4][y - time + 4][z + 5] + u[t0][x - time + 4][y - time + 5][z + 4] + u[t0][x - time + 5][y - time + 4][z + 4]) - 3.33333341e-2F * u[t0][x - time + 4][y - time + 4][z + 4]) + (2 * u[t0][x - time + 4][y - time + 4][z + 4] - u[t2][x - time + 4][y - time + 4][z + 4]) / ((vp[x - time + 4][y - time + 4][z + 4] * vp[x - time + 4][y - time + 4][z + 4])));
             }
-            //#pragma omp simd aligned(u : 32)
+            #pragma omp simd aligned(u : 32)
             for (int spzi = 0; spzi < sparse_source_mask_NNZ[x + 4 - time][y + 4 - time]; spzi++) // Inner block loop
             {
-              //printf("spzi is %d \n", spzi);
-              
-              int zind = sparse_source_mask[x + 4 - time][y + 4 - time][spzi];
-              //printf("\n zind is : %d", sparse_source_mask[x + 4 - time][y + 4 - time][spzi]);
+              //printf("\n Sparse index of z : var spzi is %d ", spzi);
 
-              u[t1][x + 4 - time][y + 4 - time][zind] += source_mask[x + 4 - time][y + 4 - time][zind] * save_src[(source_id[x + 4 - time][y + 4 - time][zind])][ tw + 1 ];
-              //printf("\n Inject source in grid[%d][%d][%d], src = %f, ", x + 4 - time, y + 4 - time, zind, save_src[(source_id[x + 4 - time][y + 4 - time][zind])][tw + 1]);
-              //printf("\n update : %d, %d, %d in %d", x - titer2, yi - titer2, zi ,titer2);
+              int zind = sparse_source_mask[x + 4 - time][y + 4 - time][spzi];
+              //printf("\n Dense z index zind is : %d", sparse_source_mask[x + 4 - time][y + 4 - time][spzi]);
+
+              u[t1][x + 4 - time][y + 4 - time][zind] += source_mask[x + 4 - time][y + 4 - time][zind] * save_src[(source_id[x + 4 - time][y + 4 - time][zind])][tw + 1];
+              //printf("\n Source injection at grid[%d][%d][%d] with value src = %f, ", x + 4 - time, y + 4 - time, zind, save_src[(source_id[x + 4 - time][y + 4 - time][zind])][tw + 1]);
             }
           }
         }
       }
     }
   }
-  printf("\n ---- Ending time-tiling kernel  ----\n");
+  printf("\n ... Leaving C-land - End of time-tiling kernel  ---- \n");
 }
-/* Backdoor edit at Mon Mar 16 16:02:36 2020*/
-/* Backdoor edit at Mon Mar 16 16:08:07 2020*/
-/* Backdoor edit at Mon Mar 16 16:08:22 2020*/
-/* Backdoor edit at Mon Mar 16 16:09:42 2020*/
-/* Backdoor edit at Mon Mar 16 16:17:28 2020*/
-/* Backdoor edit at Mon Mar 16 16:22:01 2020*/
-/* Backdoor edit at Mon Mar 16 16:24:05 2020*/
+
